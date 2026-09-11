@@ -144,3 +144,31 @@ def update_rule(
     db.commit()
 
     return {"status": "updated", "rule_id": rule.rule_id, "version": new_version}
+
+@router.get("/{rule_id}/history")
+def get_rule_history(rule_id: str, db: Session = Depends(get_db)):
+    versions = db.query(RuleVersion).filter_by(rule_id=rule_id).order_by(RuleVersion.created_at.desc()).all()
+    return [
+        {
+            "id": v.id,
+            "version": v.version,
+            "created_by": v.created_by,
+            "created_at": v.created_at.strftime("%d %b %Y, %I:%M %p") if v.created_at else "Recent",
+            "config": v.config
+        }
+        for v in versions
+    ]
+
+@router.patch("/{rule_id}/toggle")
+def toggle_rule(
+    rule_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    rule = db.query(ComplianceRule).filter_by(rule_id=rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    rule.is_active = not rule.is_active
+    db.commit()
+    return {"status": "ok", "rule_id": rule.rule_id, "is_active": rule.is_active}
+

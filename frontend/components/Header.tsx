@@ -15,18 +15,25 @@ export default function Header() {
       try {
         const u = JSON.parse(saved);
         setUserRole(u.role || 'inspector');
-        setUserName(u.role === 'admin' ? 'Admin-01' : 'Inspector-01');
+        setUserName(u.name || (u.role === 'admin' ? 'Admin Officer' : 'R. Kumar'));
       } catch (e) {}
     }
   }, []);
 
+  const handleSignOut = () => {
+    localStorage.removeItem('metrology_token');
+    localStorage.removeItem('metrology_user');
+    setMenuOpen(false);
+  };
+
   const switchRole = (role: 'inspector' | 'admin') => {
-    const newName = role === 'admin' ? 'Admin-01' : 'Inspector-01';
+    const newName = role === 'admin' ? 'Admin Officer' : 'R. Kumar';
     setUserRole(role);
     setUserName(newName);
     localStorage.setItem('metrology_user', JSON.stringify({ role, name: newName }));
     setMenuOpen(false);
   };
+
 
   return (
     <header className="top-header">
@@ -160,6 +167,7 @@ export default function Header() {
             <div style={{ borderTop: '1px solid #f1f5f9', marginTop: '0.35rem', paddingTop: '0.35rem' }}>
               <Link
                 href="/login"
+                onClick={handleSignOut}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -174,6 +182,7 @@ export default function Header() {
                 Sign Out
               </Link>
             </div>
+
           </div>
         )}
       </div>

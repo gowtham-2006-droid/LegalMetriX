@@ -21,34 +21,51 @@ import { LegalMetrixLogo, IndiaEmblem } from '@/components/Logo';
 export default function LoginPage() {
   const router = useRouter();
   const [role, setRole] = useState<'inspector' | 'admin'>('inspector');
-  const [email, setEmail] = useState('inspector01@gov.in');
-  const [password, setPassword] = useState('••••••••');
+  const [email, setEmail] = useState('inspector@sih.gov.in');
+  const [password, setPassword] = useState('inspector123');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const handleRoleSelect = (newRole: 'inspector' | 'admin') => {
     setRole(newRole);
+    setErrorMessage('');
     if (newRole === 'inspector') {
-      setEmail('inspector01@gov.in');
+      setEmail('inspector@sih.gov.in');
+      setPassword('inspector123');
     } else {
-      setEmail('admin01@gov.in');
+      setEmail('admin@sih.gov.in');
+      setPassword('admin123');
     }
   };
 
-  const handleSignIn = (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    const userObj = {
-      role,
-      name: role === 'inspector' ? 'Inspector-01' : 'Admin-01',
-      email
-    };
-    localStorage.setItem('metrology_user', JSON.stringify(userObj));
-    setTimeout(() => {
+    setErrorMessage('');
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim(), password })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ detail: 'Authentication failed' }));
+        throw new Error(errData.detail || 'Invalid email or password');
+      }
+
+      const data = await res.json();
+      localStorage.setItem('metrology_token', data.access_token);
+      localStorage.setItem('metrology_user', JSON.stringify(data.user));
       router.push('/dashboard');
-    }, 400);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Unable to connect to authentication service');
+      setLoading(false);
+    }
   };
+
 
   return (
     <div style={{
@@ -352,8 +369,29 @@ export default function LoginPage() {
             </button>
           </div>
 
+          {/* Error Banner */}
+          {errorMessage && (
+            <div
+              style={{
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#dc2626',
+                padding: '0.75rem 1rem',
+                borderRadius: '8px',
+                fontSize: '0.84rem',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem'
+              }}
+            >
+              <span>{errorMessage}</span>
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleSignIn}>
+
             <div style={{ marginBottom: '1.25rem' }}>
               <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
                 Email / Username

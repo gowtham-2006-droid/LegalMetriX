@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Scale,
   Search,
@@ -20,7 +20,8 @@ import {
   Save,
   AlertTriangle,
   X,
-  ArrowLeft
+  ArrowLeft,
+  Check
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -134,13 +135,94 @@ const mockRules: Rule[] = [
 ];
 
 export default function LegalMetrologyRulesPage() {
+  const [rules, setRules] = useState<Rule[]>(mockRules);
   const [selectedRule, setSelectedRule] = useState<Rule>(mockRules[3]); // Default LM-004 as in screenshot
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All Categories');
   const [selectedStatus, setSelectedStatus] = useState('All Status');
   const [drawerOpen, setDrawerOpen] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [toggleLoading, setToggleLoading] = useState(false);
 
-  const filteredRules = mockRules.filter((r) => {
+  useEffect(() => {
+    fetchRules();
+  }, []);
+
+  const fetchRules = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch('/api/rules');
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const mapped: Rule[] = data.map((r: any) => ({
+            id: r.rule_id,
+            requirement: r.requirement || r.rule_name,
+            categories: r.applicable_category === 'all_packaged_food' ? 'Food, Beverages' : r.applicable_category,
+            severity: (r.severity === 'Critical' ? 'High' : r.severity) as any,
+            version: r.version.startsWith('v') ? r.version : `v${r.version}`,
+            lastUpdated: '11 Sep 2026',
+            status: r.is_active ? 'Active' : 'Draft',
+            source: r.source_reference || 'Legal Metrology (Packaged Commodities) Rules, 2011',
+            logic: typeof r.validation_logic === 'string' ? r.validation_logic : (r.explanation_template || JSON.stringify(r.validation_logic)),
+            fields: ['Consumer care phone number', 'Consumer care email ID', 'Postal address'],
+            exceptions: 'Not applicable for certain categories as per regulation.',
+            effectiveDate: '01 Jan 2022',
+            reviewDate: '01 Jan 2027'
+          }));
+          setRules(mapped);
+          setSelectedRule((prev) => {
+            const found = mapped.find((m) => m.id === prev?.id);
+            return found || mapped[3] || mapped[0];
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch rules:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedRule?.id) {
+      fetchHistory(selectedRule.id);
+    }
+  }, [selectedRule?.id]);
+
+  const fetchHistory = async (ruleId: string) => {
+    try {
+      const res = await fetch(`/api/rules/${ruleId}/history`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) setHistoryList(data);
+      }
+    } catch (e) {}
+  };
+
+  const handleToggleRule = async () => {
+    if (!selectedRule) return;
+    setToggleLoading(true);
+    try {
+      const token = localStorage.getItem('metrology_token');
+      const res = await fetch(`/api/rules/${selectedRule.id}/toggle`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        }
+      });
+      if (res.ok) {
+        await fetchRules();
+      }
+    } catch (e) {
+      console.error('Failed to toggle rule:', e);
+    } finally {
+      setToggleLoading(false);
+    }
+  };
+
+  const filteredRules = rules.filter((r) => {
     const matchQuery =
       r.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       r.requirement.toLowerCase().includes(searchQuery.toLowerCase());
@@ -149,6 +231,7 @@ export default function LegalMetrologyRulesPage() {
     const matchStatus = selectedStatus === 'All Status' || r.status === selectedStatus;
     return matchQuery && matchCategory && matchStatus;
   });
+
 
   return (
     <div style={{ display: 'flex', gap: '20px', minHeight: 'calc(100vh - 120px)' }}>
@@ -331,7 +414,9 @@ export default function LegalMetrologyRulesPage() {
             </div>
             <div>
               <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Active Rules</span>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>24</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+                {rules.filter((r) => r.status === 'Active').length}
+              </div>
             </div>
           </div>
 
@@ -362,7 +447,9 @@ export default function LegalMetrologyRulesPage() {
             </div>
             <div>
               <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Draft Rules</span>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>3</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+                {rules.filter((r) => r.status !== 'Active').length}
+              </div>
             </div>
           </div>
 
@@ -393,9 +480,12 @@ export default function LegalMetrologyRulesPage() {
             </div>
             <div>
               <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>Categories</span>
-              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>8</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a' }}>
+                {new Set(rules.map((r) => r.categories.split(',')[0].trim())).size}
+              </div>
             </div>
           </div>
+
 
           <div
             style={{
@@ -1092,6 +1182,8 @@ export default function LegalMetrologyRulesPage() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
               <button
+                onClick={handleToggleRule}
+                disabled={toggleLoading}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -1099,17 +1191,18 @@ export default function LegalMetrologyRulesPage() {
                   gap: '6px',
                   padding: '8px',
                   backgroundColor: '#ffffff',
-                  border: '1px solid #ef4444',
-                  color: '#ef4444',
+                  border: selectedRule.status === 'Active' ? '1px solid #ef4444' : '1px solid #16a34a',
+                  color: selectedRule.status === 'Active' ? '#ef4444' : '#16a34a',
                   borderRadius: '6px',
                   fontSize: '0.8rem',
                   fontWeight: 600,
                   cursor: 'pointer'
                 }}
               >
-                <Ban size={14} />
-                Disable Rule
+                {selectedRule.status === 'Active' ? <Ban size={14} /> : <Check size={14} />}
+                {toggleLoading ? 'Updating...' : (selectedRule.status === 'Active' ? 'Disable Rule' : 'Enable Rule')}
               </button>
+
               <button
                 style={{
                   display: 'flex',

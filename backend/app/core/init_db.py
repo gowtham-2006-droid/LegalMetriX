@@ -19,6 +19,15 @@ def init_database():
             )
             db.add(inspector)
 
+        if not db.query(User).filter_by(email="inspector01@gov.in").first():
+            inspector2 = User(
+                name="R. Kumar",
+                email="inspector01@gov.in",
+                password_hash=get_password_hash("inspector123"),
+                role="inspector"
+            )
+            db.add(inspector2)
+
         if not db.query(User).filter_by(email="admin@sih.gov.in").first():
             admin = User(
                 name="Meena Sharma (Legal Metrology Officer)",
@@ -27,6 +36,16 @@ def init_database():
                 role="admin"
             )
             db.add(admin)
+
+        if not db.query(User).filter_by(email="admin01@gov.in").first():
+            admin2 = User(
+                name="Admin Officer",
+                email="admin01@gov.in",
+                password_hash=get_password_hash("admin123"),
+                role="admin"
+            )
+            db.add(admin2)
+
 
         # 2. Seed default compliance rules if not present
         for rule_dict in DEFAULT_COMPLIANCE_RULES:
