@@ -1,7 +1,14 @@
+import os
 from app.core.database import engine, Base, SessionLocal
-from app.models.entities import User, ComplianceRule, RuleVersion
+from app.models.entities import (
+    User, ComplianceRule, RuleVersion,
+    Inspection, Image, OCRResult, ExtractedField, ComplianceResult, ComplianceScore, Report
+)
 from app.core.security import get_password_hash
+from app.core.config import settings
 from app.data.default_rules import DEFAULT_COMPLIANCE_RULES
+from app.services.rule_engine import RuleEngineService
+from app.services.report_service import ReportService
 
 def init_database():
     # Create all tables
@@ -80,14 +87,6 @@ def init_database():
 
         # 3. Seed initial demo inspections if none exist
         if db.query(ComplianceScore).count() == 0:
-            import os
-            from app.core.config import settings
-            from app.services.rule_engine import RuleEngineService
-            from app.services.report_service import ReportService
-            from app.models.entities import (
-                Inspection, Image, OCRResult, ExtractedField, ComplianceResult, ComplianceScore, Report
-            )
-
             inspector = db.query(User).filter_by(role="inspector").first()
             user_id = inspector.id if inspector else None
             active_rules = db.query(ComplianceRule).filter_by(is_active=True).all()
