@@ -296,10 +296,11 @@ export default function InspectionResultPage() {
         display: 'grid',
         gridTemplateColumns: '1.15fr 1fr 1fr',
         gap: '1.25rem',
-        marginBottom: '1.25rem'
+        marginBottom: '1.25rem',
+        alignItems: 'start'
       }}>
         {/* Col 1: Product Image (Analyzed) with Interactive Views */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem' }}>
               Product Image (Analyzed)
@@ -436,7 +437,7 @@ export default function InspectionResultPage() {
         </div>
 
         {/* Col 2: Compliance Score & Extracted Details */}
-        <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+        <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem' }}>
               Compliance Score
@@ -607,35 +608,37 @@ export default function InspectionResultPage() {
               gap: '0.35rem'
             }}>
               {criticalIssues.length > 0 ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
-              {criticalIssues.length > 0 ? 'Key Issues' : 'Compliance Check Clear'}
+              {criticalIssues.length > 0 ? `${criticalIssues.length} Non-Compliant Issue${criticalIssues.length > 1 ? 's' : ''}` : 'Compliance Check Clear'}
             </p>
             {criticalIssues.length > 0 ? (
-              <>
-                <p style={{ color: '#c53030', fontWeight: 600 }}>
-                  • {criticalIssues.length} Critical Issue{criticalIssues.length > 1 ? 's' : ''}
-                </p>
+              <div style={{ maxHeight: 110, overflowY: 'auto', paddingRight: 4 }}>
                 {criticalIssues.map((iss, i) => (
-                  <p key={i} style={{ color: '#742a2a', fontSize: '0.72rem', paddingLeft: '0.75rem', marginBottom: '0.25rem' }}>
-                    {iss.field.replace(/_/g, ' ')}: {iss.explanation}
-                  </p>
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.35rem', color: '#991b1b', fontSize: '0.72rem', marginBottom: '0.3rem', lineHeight: 1.3 }}>
+                    <span style={{ fontWeight: 700, textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
+                      • {iss.field.replace(/_/g, ' ')}:
+                    </span>
+                    <span style={{ color: '#7f1d1d' }}>
+                      {iss.rule_id} missing or non-compliant
+                    </span>
+                  </div>
                 ))}
-              </>
+              </div>
             ) : (
               <p style={{ color: '#15803d', fontSize: '0.75rem' }}>
                 All mandatory rules passed according to Legal Metrology (Packaged Commodities) Rules, 2011.
               </p>
             )}
             {warningIssues.length > 0 && (
-              <>
-                <p style={{ color: '#dd6b20', fontWeight: 600, marginTop: 4 }}>
+              <div style={{ maxHeight: 60, overflowY: 'auto', marginTop: 4, paddingRight: 4, borderTop: '1px dashed #fed7d7', paddingTop: 4 }}>
+                <p style={{ color: '#dd6b20', fontWeight: 600, fontSize: '0.7rem', marginBottom: 2 }}>
                   • {warningIssues.length} Warning{warningIssues.length > 1 ? 's' : ''} / Reviews
                 </p>
                 {warningIssues.map((w, i) => (
-                  <p key={i} style={{ color: '#7b341e', fontSize: '0.72rem', paddingLeft: '0.75rem' }}>
-                    {w.field.replace(/_/g, ' ')}: {w.explanation}
+                  <p key={i} style={{ color: '#7b341e', fontSize: '0.68rem', paddingLeft: '0.5rem', marginBottom: 2 }}>
+                    {w.field.replace(/_/g, ' ')}: {w.detected_value || 'Review Required'}
                   </p>
                 ))}
-              </>
+              </div>
             )}
           </div>
 
@@ -755,7 +758,7 @@ export default function InspectionResultPage() {
                         <Eye size={12} /> View
                       </Link>
                     </td>
-                    <td style={{ fontSize: '0.78rem', color: isIssue ? '#ef4444' : '#64748b' }}>
+                    <td style={{ fontSize: '0.74rem', color: isIssue ? '#dc2626' : '#64748b', maxWidth: 280, lineHeight: 1.35 }}>
                       {row.explanation}
                     </td>
                   </tr>
