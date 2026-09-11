@@ -4,6 +4,12 @@
 > **Track:** Smart India Hackathon (SIH) · Problem Statement ID: SIH26034  
 > **Target Regulations:** Legal Metrology (Packaged Commodities) Rules — Mandatory Label Declarations (Rule 6)
 
+### 🌐 Live Cloud Deployments
+- **Frontend (Vercel):** [https://legalmetrix-kappa.vercel.app](https://legalmetrix-kappa.vercel.app)
+- **Backend (Render):** [https://render.com/deploy?repo=https://github.com/gowtham-2006-droid/LegalMetriX](https://render.com/deploy?repo=https://github.com/gowtham-2006-droid/LegalMetriX)
+- **GitHub Repository:** [https://github.com/gowtham-2006-droid/LegalMetriX](https://github.com/gowtham-2006-droid/LegalMetriX)
+
+
 ---
 
 ## 📌 Executive Summary
