@@ -23,30 +23,101 @@ export default function AnalyzingProductPage() {
   const router = useRouter();
   const id = (params?.id as string) || 'INS-2025-0012';
 
-  const [currentStep, setCurrentStep] = useState(5);
-  const [progress, setProgress] = useState(67);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [progress, setProgress] = useState(18);
+  const [productData, setProductData] = useState<any>(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
+  // Fetch initial inspection details
   useEffect(() => {
-    // Step progression animation
+    const fetchInspection = async () => {
+      try {
+        const res = await fetch(`/api/inspection/${id}`);
+        if (res.ok) {
+          const data = await res.json();
+          setProductData(data);
+        }
+      } catch (e) {}
+    };
+    if (id) fetchInspection();
+  }, [id]);
+
+  // Run the real AI analysis pipeline
+  useEffect(() => {
+    let isCancelled = false;
+
+    // Progression timers
     const timer1 = setTimeout(() => {
-      setCurrentStep(6);
-      setProgress(88);
-    }, 1500);
+      if (!isCancelled) {
+        setCurrentStep(2);
+        setProgress(35);
+      }
+    }, 700);
 
     const timer2 = setTimeout(() => {
-      setProgress(100);
-    }, 2800);
+      if (!isCancelled) {
+        setCurrentStep(3);
+        setProgress(52);
+      }
+    }, 1400);
 
     const timer3 = setTimeout(() => {
-      router.push(`/inspections/${id}`);
-    }, 3600);
+      if (!isCancelled) {
+        setCurrentStep(4);
+        setProgress(70);
+      }
+    }, 2100);
+
+    const timer4 = setTimeout(() => {
+      if (!isCancelled) {
+        setCurrentStep(5);
+        setProgress(88);
+      }
+    }, 2800);
+
+    const executeAnalysis = async () => {
+      try {
+        const token = localStorage.getItem('metrology_token');
+        const res = await fetch(`/api/inspection/${id}/analyze`, {
+          method: 'POST',
+          headers: {
+            'Authorization': token ? `Bearer ${token}` : ''
+          }
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Analysis execution failed' }));
+          throw new Error(err.detail || 'Analysis execution failed');
+        }
+
+        if (!isCancelled) {
+          setCurrentStep(6);
+          setProgress(100);
+          setTimeout(() => {
+            router.push(`/inspections/${id}`);
+          }, 600);
+        }
+      } catch (err: any) {
+        console.error('Analysis error:', err);
+        if (!isCancelled) {
+          setErrorMessage(err.message || 'Error occurred while analyzing product');
+        }
+      }
+    };
+
+    if (id) {
+      executeAnalysis();
+    }
 
     return () => {
+      isCancelled = true;
       clearTimeout(timer1);
       clearTimeout(timer2);
       clearTimeout(timer3);
+      clearTimeout(timer4);
     };
   }, [id, router]);
+
 
   const steps = [
     {
@@ -338,23 +409,38 @@ export default function AnalyzingProductPage() {
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.82rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: '#64748b' }}>Inspection ID</span>
+                <span style={{ fontWeight: 600, color: '#1a6ef5' }}>{id}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Category</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Food & Beverages</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {productData?.product_category || 'Food & Beverages'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Product Name</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Parle-G Biscuits</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {productData?.product_name || 'Packaged Commodity'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748b' }}>Brand</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Parle</span>
+                <span style={{ color: '#64748b' }}>Status</span>
+                <span style={{ fontWeight: 600, color: '#10b981' }}>
+                  {productData?.status || 'Analyzing'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Uploaded</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>11 Sep 2025, 10:24 AM</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {productData?.created_at
+                    ? new Date(productData.created_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+                    : 'Today'}
+                </span>
               </div>
             </div>
           </div>
+
 
           {/* Card 3: Analysis Steps Summary */}
           <div className="card">

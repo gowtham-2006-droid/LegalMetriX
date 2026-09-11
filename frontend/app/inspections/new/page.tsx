@@ -28,14 +28,14 @@ export default function NewInspectionPage() {
   const [brand, setBrand] = useState('Parle');
   const [notes, setNotes] = useState('');
 
-  // Selected images mock matching Image 3
   const [selectedImages, setSelectedImages] = useState([
-    { id: 1, label: 'Front View', src: 'https://images.unsplash.com/photo-1590080875515-8a3a8dc5735e?w=400&auto=format&fit=crop&q=60' },
-    { id: 2, label: 'Back View', src: 'https://images.unsplash.com/photo-1621996346565-e3d5d6281699?w=400&auto=format&fit=crop&q=60' },
-    { id: 3, label: 'Side View', src: 'https://images.unsplash.com/photo-1558961363-fa8fdf82db35?w=400&auto=format&fit=crop&q=60' }
+    { id: 1, label: 'Britannia Good Day (Sample)', src: '/scenario_1_compliant.png' }
   ]);
-
+  const [fileToUpload, setFileToUpload] = useState<File | null>(null);
+  const [scenarioId, setScenarioId] = useState<string | null>('scenario_1_compliant');
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const categories = [
     { id: 'Food & Beverages', label: 'Food & Beverages', icon: Utensils },
@@ -46,15 +46,88 @@ export default function NewInspectionPage() {
     { id: 'Others', label: 'Others', icon: MoreHorizontal }
   ];
 
-  const handleStartAnalysis = (e: React.FormEvent) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setFileToUpload(file);
+      setScenarioId(null);
+      const url = URL.createObjectURL(file);
+      setSelectedImages([
+        { id: Date.now(), label: file.name, src: url }
+      ]);
+    }
+  };
+
+  const handleSelectScenario = (scId: string, name: string, cat: string) => {
+    setScenarioId(scId);
+    setFileToUpload(null);
+    setProductName(name);
+    setCategory(cat);
+    setSelectedImages([
+      { id: Date.now(), label: `${name} (Demo)`, src: `/${scId}.png` }
+    ]);
+  };
+
+  const handleStartAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Navigate to Image 4: AI Analysis Pipeline
-    router.push('/inspections/INS-2025-0012/analyzing');
+    setSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      const token = localStorage.getItem('metrology_token');
+      // 1. Create draft inspection
+      const createRes = await fetch('/api/inspection', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: JSON.stringify({
+          product_name: productName || 'Packaged Commodity',
+          product_category: category.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_'),
+          scenario_hint: scenarioId || undefined,
+          notes: notes || `Inspected by Officer`
+        })
+      });
+
+      if (!createRes.ok) {
+        const err = await createRes.json().catch(() => ({ detail: 'Failed to create inspection' }));
+        throw new Error(err.detail || 'Failed to create inspection');
+      }
+
+      const createData = await createRes.json();
+      const inspectionId = createData.inspection_id;
+
+      // 2. Upload image or attach scenario
+      const formData = new FormData();
+      if (fileToUpload) {
+        formData.append('file', fileToUpload);
+      } else if (scenarioId) {
+        formData.append('scenario_id', scenarioId);
+      }
+
+      await fetch(`/api/inspection/${inspectionId}/image`, {
+        method: 'POST',
+        headers: {
+          'Authorization': token ? `Bearer ${token}` : ''
+        },
+        body: formData
+      });
+
+      // 3. Navigate to live analyzing pipeline
+      router.push(`/inspections/${inspectionId}/analyzing`);
+    } catch (err: any) {
+      console.error('Inspection start error:', err);
+      setErrorMessage(err.message || 'Could not start inspection');
+      setSubmitting(false);
+    }
   };
 
   const removeImage = (id: number) => {
     setSelectedImages(selectedImages.filter(img => img.id !== id));
+    setFileToUpload(null);
   };
+
 
   return (
     <div>
@@ -132,9 +205,9 @@ export default function NewInspectionPage() {
               <input
                 type="file"
                 ref={fileInputRef}
+                onChange={handleFileChange}
                 style={{ display: 'none' }}
                 accept="image/*"
-                multiple
               />
               <div style={{
                 width: 48,
@@ -150,11 +223,11 @@ export default function NewInspectionPage() {
                 <UploadCloud size={26} />
               </div>
               <p style={{ fontSize: '0.92rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.25rem' }}>
-                Drag & drop images here
+                Drag & drop package images here
               </p>
-              <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '1.25rem' }}>or</p>
+              <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '1.25rem' }}>or choose a file / live demo</p>
 
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
@@ -175,10 +248,68 @@ export default function NewInspectionPage() {
                 </button>
               </div>
 
+              {/* Demo Preloaders */}
+              <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Or Select Pre-Calibrated SIH Demo Scenario:
+                </span>
+                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleSelectScenario('scenario_1_compliant', 'Britannia Glucose D Biscuits', 'Food & Beverages'); }}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      backgroundColor: scenarioId === 'scenario_1_compliant' ? '#16a34a' : '#ecfdf5',
+                      color: scenarioId === 'scenario_1_compliant' ? '#ffffff' : '#15803d',
+                      border: '1px solid #bbf7d0',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Scenario 1: Compliant Biscuit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleSelectScenario('scenario_2_missing_care', 'Parle-G Glucose Biscuits', 'Food & Beverages'); }}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      backgroundColor: scenarioId === 'scenario_2_missing_care' ? '#dc2626' : '#fef2f2',
+                      color: scenarioId === 'scenario_2_missing_care' ? '#ffffff' : '#b91c1c',
+                      border: '1px solid #fecaca',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Scenario 2: Missing Care Helpline
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); handleSelectScenario('scenario_3_low_confidence', 'Fortune Sunlite Sunflower Oil', 'Food & Beverages'); }}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: '6px',
+                      fontSize: '0.75rem',
+                      fontWeight: 600,
+                      backgroundColor: scenarioId === 'scenario_3_low_confidence' ? '#d97706' : '#fffbeb',
+                      color: scenarioId === 'scenario_3_low_confidence' ? '#ffffff' : '#b45309',
+                      border: '1px solid #fde68a',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Scenario 3: Low OCR Confidence
+                  </button>
+                </div>
+              </div>
+
               <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '1rem' }}>
                 Supports JPG, PNG, WEBP (Max 10MB each)
               </p>
             </div>
+
 
             {/* Selected Images Tray (3 Images matching Image 3) */}
             <div>
@@ -338,6 +469,21 @@ export default function NewInspectionPage() {
               </div>
             </div>
 
+            {/* Error banner */}
+            {errorMessage && (
+              <div style={{
+                padding: '0.75rem 1rem',
+                backgroundColor: '#fef2f2',
+                border: '1px solid #fecaca',
+                color: '#dc2626',
+                borderRadius: 8,
+                marginTop: '1rem',
+                fontSize: '0.84rem'
+              }}>
+                {errorMessage}
+              </div>
+            )}
+
             {/* Blue Info Notice & Action */}
             <div style={{
               background: '#eff6ff',
@@ -358,13 +504,15 @@ export default function NewInspectionPage() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                style={{ padding: '0.65rem 1.5rem', whiteSpace: 'nowrap' }}
+                disabled={submitting}
+                style={{ padding: '0.65rem 1.5rem', whiteSpace: 'nowrap', cursor: submitting ? 'not-allowed' : 'pointer', opacity: submitting ? 0.8 : 1 }}
               >
-                Start Analysis →
+                {submitting ? 'Initializing Pipeline...' : 'Start Analysis →'}
               </button>
             </div>
           </div>
         </form>
+
 
         {/* Right Column: Step Info, Supported Categories, Tips */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
