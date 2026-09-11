@@ -30,6 +30,8 @@ interface InspectionDetail {
   notes?: string;
   created_at: string;
   image_url?: string;
+  processed_image_url?: string;
+  ocr_image_url?: string;
   pdf_url?: string;
   compliance_score?: {
     weighted_score: number;
@@ -308,122 +310,59 @@ export default function InspectionResultPage() {
               position: 'relative',
               borderRadius: 8,
               overflow: 'hidden',
-              background: '#f8fafc',
+              background: '#0f172a',
               border: '1px solid #e2e8f0',
               height: 250,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              {imageTab === 'ocr' ? (
-                <div style={{
-                  width: '100%',
-                  height: '100%',
-                  padding: '0.75rem',
-                  overflowY: 'auto',
-                  background: '#0f172a',
-                  color: '#38bdf8',
-                  fontFamily: 'monospace',
-                  fontSize: '0.75rem',
-                  lineHeight: 1.5
-                }}>
-                  <div style={{ color: '#94a3b8', borderBottom: '1px solid #334155', paddingBottom: 4, marginBottom: 6 }}>
-                    RAW OCR STREAM ({ocrLines.length} lines detected)
-                  </div>
-                  {ocrLines.length > 0 ? (
-                    ocrLines.map((line, idx) => (
-                      <div key={idx}>&gt; {line}</div>
-                    ))
-                  ) : (
-                    <div style={{ color: '#64748b' }}>No OCR text lines available.</div>
-                  )}
-                </div>
-              ) : (
-                /* Processed / Original Canvas */
-                <div style={{
-                  position: 'relative',
-                  width: '90%',
-                  height: '85%',
-                  background: inspection.product_name?.toLowerCase().includes('oil')
-                    ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
-                    : 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
-                  border: '1px solid #ca8a04',
-                  borderRadius: 8,
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
-                  padding: '0.65rem',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  justifyContent: 'space-between'
-                }}>
-                  {/* Top Row: Date & MRP */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{
-                      border: '1.5px solid #a855f7',
-                      padding: '0.1rem 0.35rem',
-                      borderRadius: 4,
-                      background: 'rgba(168, 85, 247, 0.15)'
-                    }}>
-                      <span style={{ fontSize: '0.62rem', background: '#9333ea', color: 'white', padding: '0.1rem 0.3rem', borderRadius: 2 }}>
-                        Mfd. {extractedFields['date_mfg_pkd']?.value || '08/2026'}
-                      </span>
-                    </div>
+              {(() => {
+                const currentImg =
+                  imageTab === 'original'
+                    ? inspection.image_url
+                    : imageTab === 'processed'
+                    ? (inspection.processed_image_url || inspection.image_url)
+                    : (inspection.ocr_image_url || inspection.image_url);
 
-                    <div style={{
-                      border: '1.5px solid #0284c7',
-                      padding: '0.1rem 0.35rem',
-                      borderRadius: 4,
-                      background: 'rgba(2, 132, 199, 0.15)'
-                    }}>
-                      <span style={{ fontSize: '0.62rem', background: '#0284c7', color: 'white', padding: '0.1rem 0.3rem', borderRadius: 2 }}>
-                        MRP {extractedFields['mrp']?.value || '₹50/-'}
-                      </span>
+                if (currentImg) {
+                  return (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                      <img
+                        src={currentImg}
+                        alt={`${imageTab} view`}
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '100%',
+                          objectFit: 'contain'
+                        }}
+                      />
+                      <div style={{
+                        position: 'absolute',
+                        bottom: 8,
+                        left: 8,
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(4px)',
+                        color: '#f8fafc',
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: 4
+                      }}>
+                        {imageTab === 'original' && '📷 Original Uploaded Image'}
+                        {imageTab === 'processed' && '⚡ CLAHE Contrast Normalized'}
+                        {imageTab === 'ocr' && '🔍 AI OCR Bounding Boxes'}
+                      </div>
                     </div>
-                  </div>
+                  );
+                }
 
-                  {/* Center: Product Name Box */}
-                  <div style={{
-                    alignSelf: 'center',
-                    border: '2px solid #16a34a',
-                    padding: '0.3rem 0.8rem',
-                    borderRadius: 6,
-                    background: 'rgba(22, 163, 74, 0.1)',
-                    textAlign: 'center'
-                  }}>
-                    <div style={{ background: '#b91c1c', color: 'white', padding: '0.2rem 0.6rem', borderRadius: 4, fontWeight: 900, fontSize: '0.95rem' }}>
-                      {inspection.product_name}
-                    </div>
-                    <span style={{ fontSize: '0.55rem', background: '#16a34a', color: 'white', padding: '0.05rem 0.25rem', borderRadius: 2, display: 'inline-block', marginTop: 2 }}>
-                      Declared Product Name
-                    </span>
+                return (
+                  <div style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                    No package image available.
                   </div>
-
-                  {/* Bottom Row: Net Qty & Mfg Address */}
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                    <div style={{
-                      border: '1.5px solid #f97316',
-                      padding: '0.15rem 0.4rem',
-                      borderRadius: 4,
-                      background: 'rgba(249, 115, 22, 0.15)'
-                    }}>
-                      <p style={{ fontSize: '0.68rem', fontWeight: 700, color: '#7c2d12', margin: 0 }}>
-                        Net Qty: {extractedFields['net_quantity']?.value || '800 g'}
-                      </p>
-                    </div>
-
-                    <div style={{
-                      maxWidth: '55%',
-                      border: '1.5px solid #0891b2',
-                      padding: '0.15rem 0.35rem',
-                      borderRadius: 4,
-                      background: 'rgba(8, 145, 178, 0.15)'
-                    }}>
-                      <p style={{ fontSize: '0.52rem', color: '#155e75', lineHeight: 1.1, margin: 0 }}>
-                        {extractedFields['manufacturer']?.value ? extractedFields['manufacturer'].value.slice(0, 45) + '...' : 'Parle Products Pvt. Ltd.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           </div>
 

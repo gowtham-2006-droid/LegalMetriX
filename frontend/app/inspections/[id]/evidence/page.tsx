@@ -49,7 +49,7 @@ function VisualEvidenceContent() {
   const [loading, setLoading] = useState(true);
   const [inspection, setInspection] = useState<any>(null);
   const [detectedElements, setDetectedElements] = useState<DetectedElement[]>([]);
-  const [showLabels, setShowLabels] = useState(true);
+  const [evidenceTab, setEvidenceTab] = useState<'ocr' | 'original'>('ocr');
   const [zoomLevel, setZoomLevel] = useState(1);
   const [selectedElement, setSelectedElement] = useState<string | null>(initialSelectedField);
   const [selectedView, setSelectedView] = useState('Front View');
@@ -214,169 +214,79 @@ function VisualEvidenceContent() {
             </h3>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
               <button
-                onClick={() => setSelectedElement(null)}
-                className="btn btn-primary"
+                onClick={() => setEvidenceTab('ocr')}
+                className={`btn ${evidenceTab === 'ocr' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
               >
-                Show All Detections
+                OCR Annotated Image
               </button>
               <button
-                onClick={() => setShowLabels(!showLabels)}
-                className="btn btn-secondary"
+                onClick={() => setEvidenceTab('original')}
+                className={`btn ${evidenceTab === 'original' ? 'btn-primary' : 'btn-secondary'}`}
                 style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem' }}
               >
-                {showLabels ? 'Hide Labels' : 'Show Labels'}
+                Original Image
               </button>
             </div>
           </div>
 
-          {/* Interactive Bounding Box Surface */}
+          {/* Interactive Image Surface */}
           <div style={{
             position: 'relative',
             borderRadius: 8,
             overflow: 'hidden',
-            background: '#f8fafc',
+            background: '#0f172a',
             border: '1px solid #e2e8f0',
             height: 380,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center'
           }}>
-            {/* Package Surface */}
-            <div style={{
-              position: 'relative',
-              width: 440,
-              height: 280,
-              background: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
-              border: '2px solid #ca8a04',
-              borderRadius: 10,
-              boxShadow: '0 6px 18px rgba(0,0,0,0.1)',
-              padding: '1rem',
-              transform: `scale(${zoomLevel})`,
-              transition: 'transform 0.2s ease'
-            }}>
-              {/* Mfg Date BBox */}
-              <div style={{
-                position: 'absolute',
-                top: 14,
-                left: 14,
-                border: selectedElement?.includes('mfg') ? '3px solid #7e22ce' : '2px solid #9333ea',
-                background: 'rgba(147, 51, 234, 0.12)',
-                padding: '0.2rem 0.5rem',
-                borderRadius: 4
-              }}>
-                {showLabels && (
-                  <span style={{ position: 'absolute', top: -14, left: 0, background: '#9333ea', color: 'white', fontSize: '0.58rem', padding: '0.05rem 0.35rem', borderRadius: 2 }}>
-                    Date of Manufacture
-                  </span>
-                )}
-                <p style={{ fontSize: '0.72rem', fontWeight: 600, color: '#581c87', margin: 0 }}>Mfd. Detected</p>
-              </div>
+            {(() => {
+              const activeSrc =
+                evidenceTab === 'ocr'
+                  ? (inspection?.ocr_image_url || inspection?.image_url)
+                  : inspection?.image_url;
 
-              {/* MRP BBox */}
-              <div style={{
-                position: 'absolute',
-                top: 14,
-                right: 20,
-                border: selectedElement?.includes('mrp') ? '3px solid #0369a1' : '2px solid #0284c7',
-                background: 'rgba(2, 132, 199, 0.12)',
-                padding: '0.2rem 0.5rem',
-                borderRadius: 4
-              }}>
-                {showLabels && (
-                  <span style={{ position: 'absolute', top: -14, right: 0, background: '#0284c7', color: 'white', fontSize: '0.58rem', padding: '0.05rem 0.35rem', borderRadius: 2 }}>
-                    MRP
-                  </span>
-                )}
-                <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#075985', margin: 0 }}>MRP Detected</p>
-              </div>
+              if (activeSrc) {
+                return (
+                  <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    <img
+                      src={activeSrc}
+                      alt="Visual Evidence"
+                      style={{
+                        maxWidth: '95%',
+                        maxHeight: '92%',
+                        objectFit: 'contain',
+                        transform: `scale(${zoomLevel})`,
+                        transition: 'transform 0.2s ease',
+                        borderRadius: 6
+                      }}
+                    />
+                    <div style={{
+                      position: 'absolute',
+                      bottom: 12,
+                      left: 12,
+                      background: 'rgba(15, 23, 42, 0.85)',
+                      backdropFilter: 'blur(4px)',
+                      color: '#f8fafc',
+                      fontSize: '0.72rem',
+                      fontWeight: 600,
+                      padding: '0.25rem 0.65rem',
+                      borderRadius: 4
+                    }}>
+                      {evidenceTab === 'ocr' ? '🔍 AI OCR Bounding Boxes with Detection Tags' : '📷 Original Package Image'}
+                    </div>
+                  </div>
+                );
+              }
 
-              {/* Product Name BBox */}
-              <div style={{
-                position: 'absolute',
-                top: 75,
-                left: 110,
-                border: selectedElement?.includes('product') ? '3.5px solid #15803d' : '2.5px solid #16a34a',
-                background: 'rgba(22, 163, 74, 0.12)',
-                padding: '0.5rem 1rem',
-                borderRadius: 8
-              }}>
-                {showLabels && (
-                  <span style={{ position: 'absolute', top: -16, left: 0, background: '#16a34a', color: 'white', fontSize: '0.62rem', padding: '0.08rem 0.4rem', borderRadius: 3 }}>
-                    Product Name
-                  </span>
-                )}
-                <div style={{ background: '#b91c1c', color: 'white', padding: '0.25rem 0.85rem', borderRadius: 6, fontWeight: 900, fontSize: '1.25rem' }}>
-                  {inspection?.product_name || 'Commodity'}
+              return (
+                <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                  No evidence image available.
                 </div>
-              </div>
-
-              {/* Net Quantity BBox */}
-              <div style={{
-                position: 'absolute',
-                bottom: 20,
-                left: 14,
-                border: selectedElement?.includes('quantity') ? '3px solid #c2410c' : '2px solid #f97316',
-                background: 'rgba(249, 115, 22, 0.12)',
-                padding: '0.2rem 0.5rem',
-                borderRadius: 4
-              }}>
-                {showLabels && (
-                  <span style={{ position: 'absolute', top: -14, left: 0, background: '#f97316', color: 'white', fontSize: '0.58rem', padding: '0.05rem 0.35rem', borderRadius: 2 }}>
-                    Net Quantity
-                  </span>
-                )}
-                <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#7c2d12', margin: 0 }}>Net Qty Detected</p>
-              </div>
-
-              {/* Manufacturer BBox */}
-              <div style={{
-                position: 'absolute',
-                bottom: 20,
-                left: 140,
-                border: selectedElement?.includes('manufacturer') ? '3px solid #0e7490' : '2px solid #0891b2',
-                background: 'rgba(8, 145, 178, 0.12)',
-                padding: '0.2rem 0.5rem',
-                borderRadius: 4
-              }}>
-                {showLabels && (
-                  <span style={{ position: 'absolute', top: -14, left: 0, background: '#0891b2', color: 'white', fontSize: '0.58rem', padding: '0.05rem 0.35rem', borderRadius: 2 }}>
-                    Manufacturer
-                  </span>
-                )}
-                <p style={{ fontSize: '0.6rem', color: '#155e75', lineHeight: 1.1, margin: 0 }}>
-                  Manufacturer Details
-                </p>
-              </div>
-
-              {/* RED DASHED: Consumer Care Not Detected */}
-              <div style={{
-                position: 'absolute',
-                bottom: 16,
-                right: 14,
-                border: '2.5px dashed #dc2626',
-                background: 'rgba(220, 38, 38, 0.14)',
-                padding: '0.2rem 0.5rem',
-                borderRadius: 6,
-                width: 135,
-                height: 48
-              }}>
-                <span style={{
-                  position: 'absolute',
-                  top: -14,
-                  right: 0,
-                  background: '#dc2626',
-                  color: 'white',
-                  fontSize: '0.55rem',
-                  fontWeight: 700,
-                  padding: '0.05rem 0.35rem',
-                  borderRadius: 2,
-                  whiteSpace: 'nowrap'
-                }}>
-                  Consumer Care: Missing
-                </span>
-              </div>
-            </div>
+              );
+            })()}
           </div>
 
           {/* Zoom Toolbar */}

@@ -182,9 +182,30 @@ def analyze_inspection(
 
     # Step 1: CV Preprocessing
     cv_info = ComputerVisionService.preprocess_image(image.file_path, settings.UPLOAD_DIR)
+    processed_url = f"/storage/uploads/{os.path.basename(cv_info['processed_path'])}"
+    proc_img = db.query(Image).filter_by(inspection_id=id, image_type="processed").first()
+    if not proc_img:
+        proc_img = Image(inspection_id=id, file_path=cv_info["processed_path"], storage_url=processed_url, image_type="processed")
+        db.add(proc_img)
+    else:
+        proc_img.file_path = cv_info["processed_path"]
+        proc_img.storage_url = processed_url
 
     # Step 2: OCR Extraction
     ocr_data = OCRService.extract_text(cv_info["processed_path"], scenario_hint=scenario_hint)
+    
+    # Generate and save OCR Annotated Image with Bounding Boxes
+    base_name = os.path.splitext(os.path.basename(image.file_path))[0]
+    ocr_annotated_path = os.path.join(settings.UPLOAD_DIR, f"{base_name}_ocr.png")
+    OCRService.generate_annotated_image(image.file_path, ocr_data["lines"], ocr_annotated_path)
+    ocr_url = f"/storage/uploads/{base_name}_ocr.png"
+    ocr_img = db.query(Image).filter_by(inspection_id=id, image_type="ocr").first()
+    if not ocr_img:
+        ocr_img = Image(inspection_id=id, file_path=ocr_annotated_path, storage_url=ocr_url, image_type="ocr")
+        db.add(ocr_img)
+    else:
+        ocr_img.file_path = ocr_annotated_path
+        ocr_img.storage_url = ocr_url
     
     # Save OCR Results
     existing_ocr = db.query(OCRResult).filter_by(inspection_id=id).first()
@@ -315,7 +336,36 @@ def get_inspection(id: str, db: Session = Depends(get_db)):
     if not insp:
         raise HTTPException(status_code=404, detail="Inspection not found")
 
-    image = db.query(Image).filter(Image.inspection_id == id).order_by(Image.uploaded_at.desc()).first()
+    original_img = db.query(Image).filter_by(inspection_id=id, image_type="front").first()
+    if not original_img:
+        original_img = db.query(Image).filter(Image.inspection_id == id).order_by(Image.uploaded_at.asc()).first()
+
+    processed_img = db.query(Image).filter_by(inspection_id=id, image_type="processed").first()
+    ocr_img = db.query(Image).filter_by(inspection_id=id, image_type="ocr").first()
+
+    processed_url = processed_img.storage_url if processed_img else None
+    ocr_url = ocr_img.storage_url if ocr_img else None
+
+    if original_img:
+        base_name = os.path.splitext(os.path.basename(original_img.file_path))[0]
+        proc_disk = os.path.join(settings.UPLOAD_DIR, f"{base_name}_preprocessed.png")
+        ocr_disk = os.path.join(settings.UPLOAD_DIR, f"{base_name}_ocr.png")
+
+        if not processed_url and os.path.exists(proc_disk):
+            processed_url = f"/storage/uploads/{base_name}_preprocessed.png"
+        elif not processed_url:
+            processed_url = original_img.storage_url
+
+        if not ocr_url:
+            if not os.path.exists(ocr_disk):
+                ocr_rec = db.query(OCRResult).filter_by(inspection_id=id).first()
+                if ocr_rec and ocr_rec.raw_lines:
+                    OCRService.generate_annotated_image(original_img.file_path, ocr_rec.raw_lines, ocr_disk)
+            if os.path.exists(ocr_disk):
+                ocr_url = f"/storage/uploads/{base_name}_ocr.png"
+            else:
+                ocr_url = original_img.storage_url
+
     score = db.query(ComplianceScore).filter(ComplianceScore.inspection_id == id).first()
     report = db.query(Report).filter(Report.inspection_id == id).first()
 
@@ -326,7 +376,9 @@ def get_inspection(id: str, db: Session = Depends(get_db)):
         "status": insp.status,
         "notes": insp.notes,
         "created_at": insp.created_at,
-        "image_url": image.storage_url if image else None,
+        "image_url": original_img.storage_url if original_img else None,
+        "processed_image_url": processed_url,
+        "ocr_image_url": ocr_url,
         "pdf_url": report.pdf_url if report else None,
         "compliance_score": {
             "weighted_score": score.weighted_score,

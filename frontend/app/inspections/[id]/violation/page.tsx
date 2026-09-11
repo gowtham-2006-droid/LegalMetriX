@@ -53,6 +53,7 @@ function ViolationDetailsContent() {
   const [inspection, setInspection] = useState<any>(null);
   const [violation, setViolation] = useState<ComplianceResultItem | null>(null);
   const [ocrLines, setOcrLines] = useState<string[]>([]);
+  const [violationImageTab, setViolationImageTab] = useState<'ocr' | 'original'>('ocr');
   const [notes, setNotes] = useState('');
   const [savingNotes, setSavingNotes] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -218,89 +219,82 @@ function ViolationDetailsContent() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Card 1: Product Image with Highlighted Area */}
           <div className="card">
-            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem' }}>
-              Product Image with Highlighted Area
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 700 }}>
+                Product Image (Evidence)
+              </h3>
+              <div style={{ display: 'flex', gap: '0.4rem' }}>
+                <button
+                  onClick={() => setViolationImageTab('ocr')}
+                  className={`btn ${violationImageTab === 'ocr' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
+                >
+                  OCR Highlight View
+                </button>
+                <button
+                  onClick={() => setViolationImageTab('original')}
+                  className={`btn ${violationImageTab === 'original' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ fontSize: '0.72rem', padding: '0.25rem 0.6rem' }}
+                >
+                  Original Image
+                </button>
+              </div>
+            </div>
 
-            {/* Visual Bounding Box Showcase */}
+            {/* Visual Image Showcase */}
             <div style={{
               position: 'relative',
               borderRadius: 8,
               overflow: 'hidden',
-              background: '#f8fafc',
+              background: '#0f172a',
               border: '1px solid #e2e8f0',
               height: 280,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              {/* Package Visual */}
-              <div style={{
-                position: 'relative',
-                width: 360,
-                height: 220,
-                background: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
-                border: '1px solid #ca8a04',
-                borderRadius: 8,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                padding: '0.75rem'
-              }}>
-                {/* MRP & Date badges */}
-                <div style={{ position: 'absolute', top: 12, left: 14, background: '#9333ea', color: 'white', fontSize: '0.62rem', padding: '0.1rem 0.35rem', borderRadius: 3 }}>
-                  Mfd. Detected
-                </div>
-                <div style={{ position: 'absolute', top: 12, right: 14, background: '#0284c7', color: 'white', fontSize: '0.62rem', padding: '0.1rem 0.35rem', borderRadius: 3 }}>
-                  MRP Detected
-                </div>
+              {(() => {
+                const activeSrc =
+                  violationImageTab === 'ocr'
+                    ? (inspection?.ocr_image_url || inspection?.image_url)
+                    : inspection?.image_url;
 
-                {/* Center logo */}
-                <div style={{
-                  position: 'absolute',
-                  top: 75,
-                  left: 100,
-                  background: '#b91c1c',
-                  color: 'white',
-                  padding: '0.35rem 0.9rem',
-                  borderRadius: 6,
-                  fontWeight: 900,
-                  fontSize: '1.15rem'
-                }}>
-                  {inspection?.product_name || 'Commodity'}
-                </div>
+                if (activeSrc) {
+                  return (
+                    <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                      <img
+                        src={activeSrc}
+                        alt="Violation Evidence"
+                        style={{
+                          maxWidth: '96%',
+                          maxHeight: '94%',
+                          objectFit: 'contain'
+                        }}
+                      />
+                      <div style={{
+                        position: 'absolute',
+                        bottom: 8,
+                        left: 8,
+                        background: 'rgba(15, 23, 42, 0.85)',
+                        backdropFilter: 'blur(4px)',
+                        color: '#f8fafc',
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        padding: '0.2rem 0.55rem',
+                        borderRadius: 4
+                      }}>
+                        {violationImageTab === 'ocr' ? '🔍 AI OCR Detections with Region Bounds' : '📷 Original Uploaded Package'}
+                      </div>
+                    </div>
+                  );
+                }
 
-                <div style={{ position: 'absolute', bottom: 18, left: 14, background: '#f97316', color: 'white', fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: 3 }}>
-                  Net Qty Detected
-                </div>
-
-                {/* RED DASHED HIGHLIGHT BOX: Missing Declaration */}
-                <div style={{
-                  position: 'absolute',
-                  bottom: 12,
-                  right: 14,
-                  width: 170,
-                  height: 54,
-                  border: '2px dashed #dc2626',
-                  borderRadius: 6,
-                  background: 'rgba(239, 68, 68, 0.12)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  <span style={{
-                    position: 'absolute',
-                    top: -16,
-                    background: '#dc2626',
-                    color: 'white',
-                    fontSize: '0.58rem',
-                    fontWeight: 700,
-                    padding: '0.1rem 0.4rem',
-                    borderRadius: 3,
-                    whiteSpace: 'nowrap'
-                  }}>
-                    Expected {fieldName} (Not Detected)
-                  </span>
-                </div>
-              </div>
+                return (
+                  <div style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+                    No package image available.
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Carousel Thumbnails */}

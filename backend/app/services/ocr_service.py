@@ -88,3 +88,77 @@ class OCRService:
             "overall_confidence": 0.94,
             "engine": "calibrated_mock_engine"
         }
+
+    @staticmethod
+    def generate_annotated_image(image_path: str, ocr_lines: list, output_path: str) -> str:
+        """
+        Draws color-coded bounding boxes and detected text labels onto the image.
+        """
+        try:
+            from PIL import Image as PILImage, ImageDraw
+            if not os.path.exists(image_path):
+                return image_path
+
+            img = PILImage.open(image_path).convert("RGBA")
+            overlay = PILImage.new("RGBA", img.size, (255, 255, 255, 0))
+            draw = ImageDraw.Draw(overlay)
+
+            w_img, h_img = img.size
+
+            for idx, item in enumerate(ocr_lines):
+                if not isinstance(item, dict):
+                    continue
+                bbox = item.get("bbox")
+                text = item.get("text", "")
+                conf = float(item.get("confidence", 0.9))
+
+                if not bbox:
+                    # Synthesize clean distributed box if not present
+                    y_start = 40 + idx * 55
+                    x1, y1, x2, y2 = 40, y_start, min(w_img - 40, 450), min(h_img - 20, y_start + 40)
+                elif len(bbox) == 4 and isinstance(bbox[0], (list, tuple)):
+                    x_coords = [int(p[0]) for p in bbox]
+                    y_coords = [int(p[1]) for p in bbox]
+                    x1, y1 = min(x_coords), min(y_coords)
+                    x2, y2 = max(x_coords), max(y_coords)
+                elif len(bbox) == 4:
+                    x1, y1, bw, bh = [int(v) for v in bbox]
+                    x2, y2 = x1 + bw, y1 + bh
+                else:
+                    continue
+
+                # Clamp to image boundaries
+                x1 = max(0, min(x1, w_img - 10))
+                y1 = max(0, min(y1, h_img - 10))
+                x2 = max(x1 + 10, min(x2, w_img))
+                y2 = max(y1 + 10, min(y2, h_img))
+
+                # Color coding
+                if conf >= 0.85:
+                    border = (16, 185, 129, 255) # Green
+                    fill = (16, 185, 129, 40)
+                elif conf >= 0.60:
+                    border = (245, 158, 11, 255) # Amber
+                    fill = (245, 158, 11, 40)
+                else:
+                    border = (239, 68, 68, 255) # Red
+                    fill = (239, 68, 68, 45)
+
+                draw.rectangle([x1, y1, x2, y2], fill=fill, outline=border, width=2)
+
+                # Label tag
+                tag = f"{text[:25]} ({int(conf * 100)}%)" if conf <= 1.0 else f"{text[:25]}"
+                tag_width = max(len(tag) * 6, 60)
+                tag_y1 = max(0, y1 - 16)
+                draw.rectangle([x1, tag_y1, min(w_img, x1 + tag_width), y1], fill=border)
+                draw.text((x1 + 3, tag_y1 + 2), tag, fill=(255, 255, 255, 255))
+
+            composite = PILImage.alpha_composite(img, overlay).convert("RGB")
+            composite.save(output_path, "PNG")
+            return output_path
+        except Exception as e:
+            import shutil
+            if os.path.exists(image_path) and image_path != output_path:
+                shutil.copy(image_path, output_path)
+            return output_path
+

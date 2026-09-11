@@ -39,6 +39,7 @@ function InspectionReportContent() {
   const [complianceResults, setComplianceResults] = useState<any[]>([]);
   const [scoreSummary, setScoreSummary] = useState<any>(null);
   const [extractedFields, setExtractedFields] = useState<Record<string, any>>({});
+  const [imgViewMode, setImgViewMode] = useState<'ocr' | 'original'>('ocr');
 
   useEffect(() => {
     async function init() {
@@ -242,33 +243,82 @@ function InspectionReportContent() {
         <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', marginBottom: '1.75rem' }}>
           {/* 1. Product Image Showcase */}
           <div>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '0.5rem', color: '#334155' }}>
-              1. Verified Packaging Image
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h3 style={{ fontSize: '0.9rem', fontWeight: 700, color: '#334155', margin: 0 }}>
+                1. Verified Packaging Image
+              </h3>
+              <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 6, padding: 2, border: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  onClick={() => setImgViewMode('ocr')}
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    borderRadius: 4,
+                    border: 'none',
+                    background: imgViewMode === 'ocr' ? '#0f172a' : 'transparent',
+                    color: imgViewMode === 'ocr' ? '#ffffff' : '#64748b',
+                    cursor: 'pointer'
+                  }}
+                >
+                  OCR Detections
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImgViewMode('original')}
+                  style={{
+                    padding: '2px 8px',
+                    fontSize: '0.68rem',
+                    fontWeight: 600,
+                    borderRadius: 4,
+                    border: 'none',
+                    background: imgViewMode === 'original' ? '#0f172a' : 'transparent',
+                    color: imgViewMode === 'original' ? '#ffffff' : '#64748b',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Original
+                </button>
+              </div>
+            </div>
             <div style={{
-              height: 175,
+              height: 185,
               borderRadius: 8,
               border: '1px solid #e2e8f0',
-              background: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
+              background: '#090d16',
+              overflow: 'hidden',
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               position: 'relative'
             }}>
-              <div style={{ background: '#b91c1c', color: 'white', padding: '0.4rem 1.1rem', borderRadius: 6, fontWeight: 900, fontSize: '1.1rem' }}>
-                {inspection?.product_name || 'Parle-G'}
-              </div>
-              <p style={{ fontSize: '0.72rem', color: '#713f12', marginTop: 4 }}>
-                {extractedFields['net_quantity']?.value ? `Declared Net Quantity: ${extractedFields['net_quantity'].value}` : 'Packaged Commodity'}
-              </p>
-              <div style={{ position: 'absolute', bottom: 8, left: 12, fontSize: '0.68rem', color: '#854d0e' }}>
-                MRP: {extractedFields['mrp']?.value || '₹50/-'}
+              <img
+                src={
+                  imgViewMode === 'ocr'
+                    ? (inspection?.ocr_image_url || inspection?.image_url || '/storage/uploads/INS-2025-0012_ocr.png')
+                    : (inspection?.image_url || '/storage/uploads/INS-2025-0012.png')
+                }
+                alt={imgViewMode === 'ocr' ? 'OCR Annotated Packaging' : 'Original Packaging'}
+                style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+              />
+              <div style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                background: 'rgba(0,0,0,0.75)',
+                color: imgViewMode === 'ocr' ? '#4ade80' : '#ffffff',
+                padding: '2px 6px',
+                borderRadius: 4,
+                fontSize: '0.65rem',
+                fontWeight: 600
+              }}>
+                {imgViewMode === 'ocr' ? 'AI OCR Annotated' : 'Original Frame'}
               </div>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>
-              <span>Analyzed Frame: Front Face</span>
-              <span>Status: Authenticated</span>
+              <span>Analyzed Frame: Front Package Panel</span>
+              <span>Status: Authenticated & Verified</span>
             </div>
           </div>
 

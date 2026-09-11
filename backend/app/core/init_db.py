@@ -190,7 +190,7 @@ def init_database():
                     d.text((40, 40), f"Sample: {item['product_name']}", fill=(15, 23, 42))
                     img.save(sample_img_path)
 
-                if not db.query(Image).filter_by(inspection_id=insp.id).first():
+                if not db.query(Image).filter_by(inspection_id=insp.id, image_type="front").first():
                     img_rec = Image(
                         inspection_id=insp.id,
                         file_path=sample_img_path,
@@ -198,6 +198,22 @@ def init_database():
                         image_type="front"
                     )
                     db.add(img_rec)
+
+                # Generate OCR annotated image
+                sample_ocr_path = os.path.join(settings.UPLOAD_DIR, f"{item['id']}_ocr.png")
+                OCRService.generate_annotated_image(
+                    sample_img_path,
+                    [{"text": l, "confidence": 0.95} for l in item["ocr_lines"]],
+                    sample_ocr_path
+                )
+                if not db.query(Image).filter_by(inspection_id=insp.id, image_type="ocr").first():
+                    ocr_img_rec = Image(
+                        inspection_id=insp.id,
+                        file_path=sample_ocr_path,
+                        storage_url=f"/storage/uploads/{item['id']}_ocr.png",
+                        image_type="ocr"
+                    )
+                    db.add(ocr_img_rec)
 
                 if not db.query(OCRResult).filter_by(inspection_id=insp.id).first():
                     ocr_rec = OCRResult(

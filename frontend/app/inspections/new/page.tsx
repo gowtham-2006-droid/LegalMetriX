@@ -29,7 +29,7 @@ export default function NewInspectionPage() {
   const [notes, setNotes] = useState('');
 
   const [selectedImages, setSelectedImages] = useState([
-    { id: 1, label: 'Britannia Good Day (Sample)', src: '/scenario_1_compliant.png' }
+    { id: 1, label: 'Britannia Glucose D (Sample)', src: '/storage/uploads/scenario_1_compliant.png' }
   ]);
   const [fileToUpload, setFileToUpload] = useState<File | null>(null);
   const [scenarioId, setScenarioId] = useState<string | null>('scenario_1_compliant');
@@ -64,7 +64,7 @@ export default function NewInspectionPage() {
     setProductName(name);
     setCategory(cat);
     setSelectedImages([
-      { id: Date.now(), label: `${name} (Demo)`, src: `/${scId}.png` }
+      { id: Date.now(), label: `${name} (Demo)`, src: `/storage/uploads/${scId}.png` }
     ]);
   };
 
