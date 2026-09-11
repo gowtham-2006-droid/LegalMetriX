@@ -1,4 +1,10 @@
 {
+  "services": {
+    "frontend": {
+      "root": "frontend",
+      "framework": "nextjs"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",
@@ -7,6 +13,13 @@
     {
       "source": "/storage/:path*",
       "destination": "https://legalmetrix-api-bd1a.onrender.com/storage/:path*"
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "type": "service",
+        "service": "frontend"
+      }
     }
   ]
 }
