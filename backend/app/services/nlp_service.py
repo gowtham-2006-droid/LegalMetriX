@@ -244,3 +244,35 @@ class NLPService:
                 "source_bbox": matched_bbox
             }
         return results
+
+    @staticmethod
+    def format_vision_fields(vision_fields: Dict[str, Any], ocr_lines: List[Dict[str, Any]]) -> Dict[str, Any]:
+        results = {}
+        for field, f_data in vision_fields.items():
+            if not isinstance(f_data, dict):
+                continue
+            val = f_data.get("value")
+            conf = float(f_data.get("confidence", 0.0))
+            norm = f_data.get("normalized")
+            if not norm and f_data.get("amount") is not None:
+                norm = {
+                    "amount": float(f_data.get("amount")),
+                    "unit": f_data.get("unit") or ("INR" if field == "mrp" else "g")
+                }
+            matched_bbox = None
+            source_text = None
+            if val:
+                for line in ocr_lines:
+                    if line.get("field") == field or any(token.lower() in line["text"].lower() for token in str(val).split()[:2]):
+                        matched_bbox = line.get("bbox")
+                        source_text = line.get("text")
+                        break
+
+            results[field] = {
+                "value": val if val else None,
+                "normalized": norm,
+                "confidence": round(conf, 2),
+                "source_text": source_text or (val if val else None),
+                "source_bbox": matched_bbox
+            }
+        return results

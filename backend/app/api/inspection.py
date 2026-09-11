@@ -223,6 +223,8 @@ def analyze_inspection(
     # Check if scenario has pre-annotated fields
     if scenario_hint and scenario_hint in DEMO_SCENARIOS:
         extracted = DEMO_SCENARIOS[scenario_hint]["fields"]
+    elif ocr_data.get("fields"):
+        extracted = NLPService.format_vision_fields(ocr_data["fields"], ocr_data["lines"])
     else:
         extracted = NLPService.extract_fields(ocr_data["lines"], insp.product_category)
 
@@ -242,7 +244,9 @@ def analyze_inspection(
             db.add(field_rec)
 
     # Update product name if detected
-    if extracted.get("product_name") and extracted["product_name"].get("value"):
+    if ocr_data.get("product_name"):
+        insp.product_name = ocr_data["product_name"]
+    elif extracted.get("product_name") and extracted["product_name"].get("value"):
         insp.product_name = extracted["product_name"]["value"]
 
     # Step 4: Deterministic Compliance Rule Evaluation

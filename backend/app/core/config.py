@@ -9,9 +9,10 @@ class Settings(BaseSettings):
     # DB URL - defaults to sqlite if unset or empty
     DATABASE_URL: str = "sqlite:///./compliance.db"
     
-    # Groq API for NLP extraction & plain-language explainability
-    GROQ_API_KEY: str = ""
-    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    # Groq API for Qwen Vision model & NLP extraction
+    GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+    GROQ_VISION_MODEL: str = "qwen/qwen3.8-27b"
+    GROQ_MODEL: str = "qwen/qwen3.8-27b"
     
     # JWT Auth
     JWT_SECRET_KEY: str = "sih-hackathon-super-secret-key-2026-compliance-metrology"
