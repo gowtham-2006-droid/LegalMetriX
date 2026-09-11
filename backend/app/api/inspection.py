@@ -338,6 +338,32 @@ def get_inspection(id: str, db: Session = Depends(get_db)):
         } if score else None
     }
 
+class UpdateInspectionRequest(BaseModel):
+    notes: Optional[str] = None
+    product_name: Optional[str] = None
+    status: Optional[str] = None
+
+@router.patch("/inspection/{id}")
+def update_inspection(
+    id: str,
+    req: UpdateInspectionRequest,
+    db: Session = Depends(get_db)
+):
+    insp = db.query(Inspection).filter(Inspection.id == id).first()
+    if not insp:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    
+    if req.notes is not None:
+        insp.notes = req.notes
+    if req.product_name is not None:
+        insp.product_name = req.product_name
+    if req.status is not None:
+        insp.status = req.status
+        
+    db.commit()
+    db.refresh(insp)
+    return {"status": "success", "id": insp.id, "notes": insp.notes, "product_name": insp.product_name}
+
 @router.get("/inspection/{id}/ocr")
 def get_inspection_ocr(id: str, db: Session = Depends(get_db)):
     ocr = db.query(OCRResult).filter(OCRResult.inspection_id == id).first()

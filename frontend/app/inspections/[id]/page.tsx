@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -18,120 +18,178 @@ import {
   Image as ImageIcon,
   Scan,
   UserCheck,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
+
+interface InspectionDetail {
+  id: string;
+  product_name: string;
+  product_category: string;
+  status: string;
+  notes?: string;
+  created_at: string;
+  image_url?: string;
+  pdf_url?: string;
+  compliance_score?: {
+    weighted_score: number;
+    status_label: string;
+    passed_count: number;
+    failed_count: number;
+    review_count: number;
+    na_count: number;
+  };
+}
+
+interface ComplianceResultItem {
+  rule_id: string;
+  rule_version: number;
+  field: string;
+  status: string; // Pass, Fail, Review
+  severity: string;
+  evidence?: string;
+  explanation: string;
+  detected_value?: string;
+  expected_value?: string;
+  source_reference?: string;
+}
+
+interface ExtractedFieldItem {
+  field_name: string;
+  value?: string;
+  normalized_value?: any;
+  confidence: number;
+  source_text?: string;
+  source_bbox?: any;
+}
 
 export default function InspectionResultPage() {
   const params = useParams();
   const router = useRouter();
   const id = (params?.id as string) || 'INS-2025-0012';
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [inspection, setInspection] = useState<InspectionDetail | null>(null);
+  const [complianceResults, setComplianceResults] = useState<ComplianceResultItem[]>([]);
+  const [scoreSummary, setScoreSummary] = useState<any>(null);
+  const [extractedFields, setExtractedFields] = useState<Record<string, ExtractedFieldItem>>({});
+  const [ocrLines, setOcrLines] = useState<string[]>([]);
+
   const [showOnlyIssues, setShowOnlyIssues] = useState(false);
   const [imageTab, setImageTab] = useState<'original' | 'processed' | 'ocr'>('processed');
   const [verified, setVerified] = useState(false);
 
-  const checks = [
-    {
-      num: 1,
-      name: 'MRP Declaration',
-      status: 'Pass',
-      statusType: 'pass',
-      value: '₹50/-',
-      conf: '99%',
-      rule: 'LM (PC) Rules, 2011 Rule 6',
-      hasEvidence: true,
-      remarks: 'Detected clearly',
-      link: `/inspections/${id}/evidence`
-    },
-    {
-      num: 2,
-      name: 'Net Quantity',
-      status: 'Pass',
-      statusType: 'pass',
-      value: '800 g',
-      conf: '97%',
-      rule: 'Rule 6 & 18',
-      hasEvidence: true,
-      remarks: 'Detected clearly',
-      link: `/inspections/${id}/evidence`
-    },
-    {
-      num: 3,
-      name: 'Manufacturer Details',
-      status: 'Pass',
-      statusType: 'pass',
-      value: 'Parle Products Pvt. Ltd. Vile Parle, Mumbai - 400057',
-      conf: '94%',
-      rule: 'Rule 6(1)(d)',
-      hasEvidence: true,
-      remarks: 'Detected clearly',
-      link: `/inspections/${id}/evidence`
-    },
-    {
-      num: 4,
-      name: 'Consumer Care Information',
-      status: 'Issue',
-      statusType: 'issue',
-      value: 'Not detected',
-      conf: '—',
-      rule: 'Rule 6(1)(f)',
-      hasEvidence: true,
-      remarks: 'Mandatory declaration missing',
-      link: `/inspections/${id}/violation`
-    },
-    {
-      num: 5,
-      name: 'Date of Manufacture',
-      status: 'Pass',
-      statusType: 'pass',
-      value: '08/2026',
-      conf: '91%',
-      rule: 'Rule 6(1)(e)',
-      hasEvidence: true,
-      remarks: 'Detected clearly',
-      link: `/inspections/${id}/evidence`
-    },
-    {
-      num: 6,
-      name: 'Best Before / Expiry',
-      status: 'Warning',
-      statusType: 'warning',
-      value: 'Not detected',
-      conf: '—',
-      rule: 'Rule 6(1)(e)',
-      hasEvidence: false,
-      remarks: 'May be required for this category',
-      link: '#'
-    },
-    {
-      num: 7,
-      name: 'Country of Origin',
-      status: 'Warning',
-      statusType: 'warning',
-      value: 'Not detected',
-      conf: '—',
-      rule: 'Rule 6(1)(h)',
-      hasEvidence: false,
-      remarks: 'Required for imported goods',
-      link: '#'
-    },
-    {
-      num: 8,
-      name: 'Unit of Quantity',
-      status: 'Pass',
-      statusType: 'pass',
-      value: 'g (grams)',
-      conf: '96%',
-      rule: 'Rule 6(3)',
-      hasEvidence: true,
-      remarks: 'Compliant',
-      link: `/inspections/${id}/evidence`
+  useEffect(() => {
+    async function fetchData() {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = localStorage.getItem('metrology_token');
+        const headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        // 1. Fetch Inspection metadata
+        const inspRes = await fetch(`/api/inspection/${id}`, { headers });
+        if (!inspRes.ok) {
+          throw new Error('Inspection not found');
+        }
+        const inspData = await inspRes.json();
+        setInspection(inspData);
+
+        // 2. Fetch Compliance evaluation
+        const compRes = await fetch(`/api/inspection/${id}/compliance`, { headers });
+        if (compRes.ok) {
+          const compData = await compRes.json();
+          setComplianceResults(compData.results || []);
+          setScoreSummary(compData.compliance_score || null);
+        }
+
+        // 3. Fetch Extracted Fields
+        const fieldsRes = await fetch(`/api/inspection/${id}/extracted-data`, { headers });
+        if (fieldsRes.ok) {
+          const fieldsData = await fieldsRes.json();
+          const map: Record<string, ExtractedFieldItem> = {};
+          (fieldsData.fields || []).forEach((f: ExtractedFieldItem) => {
+            map[f.field_name] = f;
+          });
+          setExtractedFields(map);
+        }
+
+        // 4. Fetch OCR lines
+        const ocrRes = await fetch(`/api/inspection/${id}/ocr`, { headers });
+        if (ocrRes.ok) {
+          const ocrData = await ocrRes.json();
+          setOcrLines(ocrData.lines || []);
+        }
+      } catch (err: any) {
+        console.error('Failed to load inspection data:', err);
+        setError(err.message || 'Error loading inspection data');
+      } finally {
+        setLoading(false);
+      }
     }
-  ];
+
+    if (id) {
+      fetchData();
+    }
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem' }}>
+        <Loader2 size={36} className="animate-spin" color="#1a6ef5" />
+        <p style={{ color: '#64748b', fontSize: '0.9rem', fontWeight: 500 }}>Loading inspection results...</p>
+      </div>
+    );
+  }
+
+  if (error || !inspection) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '3rem', maxWidth: 600, margin: '2rem auto' }}>
+        <AlertCircle size={44} color="#ef4444" style={{ margin: '0 auto 1rem' }} />
+        <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>Inspection Not Found</h2>
+        <p style={{ color: '#64748b', fontSize: '0.88rem', marginBottom: '1.5rem' }}>
+          {error || `Unable to locate inspection ${id} in the database.`}
+        </p>
+        <Link href="/inspections/new" className="btn btn-primary">
+          Start New Inspection
+        </Link>
+      </div>
+    );
+  }
+
+  const score = scoreSummary || inspection.compliance_score || {
+    weighted_score: 0,
+    status_label: 'Pending',
+    passed_count: 0,
+    failed_count: 0,
+    review_count: 0,
+    na_count: 0
+  };
+
+  const isCompliant = score.weighted_score >= 85;
+  const isWarning = score.weighted_score >= 60 && score.weighted_score < 85;
+  const isFailed = score.weighted_score < 60;
 
   const filteredChecks = showOnlyIssues
-    ? checks.filter((c) => c.statusType !== 'pass')
-    : checks;
+    ? complianceResults.filter((c) => c.status.toLowerCase() !== 'pass')
+    : complianceResults;
+
+  // Format date helper
+  const formattedDate = inspection.created_at
+    ? new Date(inspection.created_at).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      })
+    : 'Recently analyzed';
+
+  const criticalIssues = complianceResults.filter((c) => c.status.toLowerCase() === 'fail');
+  const warningIssues = complianceResults.filter((c) => c.status.toLowerCase() === 'review');
 
   return (
     <div>
@@ -181,20 +239,22 @@ export default function InspectionResultPage() {
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
           <div style={{ textAlign: 'right' }}>
             <p style={{ fontSize: '0.82rem', fontWeight: 700, color: '#1e293b' }}>
-              Inspection ID: {id}
+              Inspection ID: {inspection.id}
             </p>
             <p style={{ fontSize: '0.75rem', color: '#64748b' }}>
-              11 Sep 2025, 10:24 AM
+              {formattedDate}
             </p>
           </div>
-          <Link
-            href={`/reports`}
+          <a
+            href={`/api/inspection/${inspection.id}/report`}
+            target="_blank"
+            rel="noopener noreferrer"
             className="btn btn-secondary"
             style={{ fontSize: '0.82rem', padding: '0.5rem 0.9rem' }}
           >
             <Download size={15} />
             Download Report
-          </Link>
+          </a>
         </div>
       </div>
 
@@ -236,14 +296,14 @@ export default function InspectionResultPage() {
         gap: '1.25rem',
         marginBottom: '1.25rem'
       }}>
-        {/* Col 1: Product Image (Analyzed) with Interactive Bounding Boxes */}
+        {/* Col 1: Product Image (Analyzed) with Interactive Views */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div>
             <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem' }}>
               Product Image (Analyzed)
             </h3>
 
-            {/* Interactive Package Canvas */}
+            {/* Interactive Package Container */}
             <div style={{
               position: 'relative',
               borderRadius: 8,
@@ -255,113 +315,115 @@ export default function InspectionResultPage() {
               alignItems: 'center',
               justifyContent: 'center'
             }}>
-              {/* Parle-G Biscuit Packet with Bounding Boxes */}
-              <div style={{
-                position: 'relative',
-                width: 320,
-                height: 190,
-                background: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
-                border: '1px solid #ca8a04',
-                borderRadius: 8,
-                boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
-                padding: '0.75rem'
-              }}>
-                {/* BBox 1: Mfd Date (Purple) */}
+              {imageTab === 'ocr' ? (
                 <div style={{
-                  position: 'absolute',
-                  top: 10,
-                  left: 10,
-                  border: '2px solid #a855f7',
-                  padding: '0.1rem 0.35rem',
-                  borderRadius: 4,
-                  background: 'rgba(168, 85, 247, 0.1)'
+                  width: '100%',
+                  height: '100%',
+                  padding: '0.75rem',
+                  overflowY: 'auto',
+                  background: '#0f172a',
+                  color: '#38bdf8',
+                  fontFamily: 'monospace',
+                  fontSize: '0.75rem',
+                  lineHeight: 1.5
                 }}>
-                  <span style={{ fontSize: '0.62rem', background: '#9333ea', color: 'white', padding: '0.1rem 0.3rem', borderRadius: 2 }}>
-                    Mfd. 08/2026
-                  </span>
-                </div>
-
-                {/* BBox 2: MRP (Blue) */}
-                <div style={{
-                  position: 'absolute',
-                  top: 10,
-                  right: 15,
-                  border: '2px solid #0284c7',
-                  padding: '0.1rem 0.35rem',
-                  borderRadius: 4,
-                  background: 'rgba(2, 132, 199, 0.1)'
-                }}>
-                  <span style={{ fontSize: '0.62rem', background: '#0284c7', color: 'white', padding: '0.1rem 0.3rem', borderRadius: 2 }}>
-                    MRP ₹50/-
-                  </span>
-                </div>
-
-                {/* BBox 3: Brand (Red) */}
-                <div style={{
-                  position: 'absolute',
-                  top: 35,
-                  left: 110,
-                  border: '1.5px solid #ef4444',
-                  padding: '0.1rem 0.3rem',
-                  borderRadius: 4
-                }}>
-                  <span style={{ fontSize: '0.55rem', background: '#ef4444', color: 'white', padding: '0.05rem 0.25rem', borderRadius: 2 }}>
-                    Brand
-                  </span>
-                </div>
-
-                {/* BBox 4: Product Name (Green) */}
-                <div style={{
-                  position: 'absolute',
-                  top: 60,
-                  left: 80,
-                  border: '2.5px solid #16a34a',
-                  padding: '0.4rem 0.8rem',
-                  borderRadius: 6,
-                  background: 'rgba(22, 163, 74, 0.1)'
-                }}>
-                  <div style={{ background: '#b91c1c', color: 'white', padding: '0.2rem 0.6rem', borderRadius: 4, fontWeight: 900, fontSize: '0.95rem' }}>
-                    Parle-G
+                  <div style={{ color: '#94a3b8', borderBottom: '1px solid #334155', paddingBottom: 4, marginBottom: 6 }}>
+                    RAW OCR STREAM ({ocrLines.length} lines detected)
                   </div>
-                  <span style={{ position: 'absolute', top: -14, left: 4, fontSize: '0.55rem', background: '#16a34a', color: 'white', padding: '0.05rem 0.25rem', borderRadius: 2 }}>
-                    Product Name
-                  </span>
+                  {ocrLines.length > 0 ? (
+                    ocrLines.map((line, idx) => (
+                      <div key={idx}>&gt; {line}</div>
+                    ))
+                  ) : (
+                    <div style={{ color: '#64748b' }}>No OCR text lines available.</div>
+                  )}
                 </div>
-
-                {/* BBox 5: Net Quantity (Orange) */}
+              ) : (
+                /* Processed / Original Canvas */
                 <div style={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 10,
-                  border: '2px solid #f97316',
-                  padding: '0.15rem 0.4rem',
-                  borderRadius: 4,
-                  background: 'rgba(249, 115, 22, 0.1)'
+                  position: 'relative',
+                  width: '90%',
+                  height: '85%',
+                  background: inspection.product_name?.toLowerCase().includes('oil')
+                    ? 'linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)'
+                    : 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
+                  border: '1px solid #ca8a04',
+                  borderRadius: 8,
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                  padding: '0.65rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  justifyContent: 'space-between'
                 }}>
-                  <p style={{ fontSize: '0.68rem', fontWeight: 700, color: '#7c2d12' }}>Net Wt. 800 g</p>
-                  <span style={{ position: 'absolute', bottom: -12, left: 0, fontSize: '0.55rem', background: '#f97316', color: 'white', padding: '0.05rem 0.25rem', borderRadius: 2 }}>
-                    Net Quantity
-                  </span>
-                </div>
+                  {/* Top Row: Date & MRP */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{
+                      border: '1.5px solid #a855f7',
+                      padding: '0.1rem 0.35rem',
+                      borderRadius: 4,
+                      background: 'rgba(168, 85, 247, 0.15)'
+                    }}>
+                      <span style={{ fontSize: '0.62rem', background: '#9333ea', color: 'white', padding: '0.1rem 0.3rem', borderRadius: 2 }}>
+                        Mfd. {extractedFields['date_mfg_pkd']?.value || '08/2026'}
+                      </span>
+                    </div>
 
-                {/* BBox 6: Manufacturer (Cyan) */}
-                <div style={{
-                  position: 'absolute',
-                  bottom: 12,
-                  left: 120,
-                  border: '2px solid #0891b2',
-                  padding: '0.15rem 0.35rem',
-                  borderRadius: 4,
-                  background: 'rgba(8, 145, 178, 0.1)'
-                }}>
-                  <p style={{ fontSize: '0.55rem', color: '#155e75', lineHeight: 1.1 }}>
-                    Parle Products Pvt. Ltd.<br />Vile Parle, Mumbai - 400057
-                  </p>
-                  <span style={{ position: 'absolute', bottom: -12, left: 0, fontSize: '0.52rem', background: '#0891b2', color: 'white', padding: '0.05rem 0.25rem', borderRadius: 2 }}>
-                    Manufacturer
-                  </span>
+                    <div style={{
+                      border: '1.5px solid #0284c7',
+                      padding: '0.1rem 0.35rem',
+                      borderRadius: 4,
+                      background: 'rgba(2, 132, 199, 0.15)'
+                    }}>
+                      <span style={{ fontSize: '0.62rem', background: '#0284c7', color: 'white', padding: '0.1rem 0.3rem', borderRadius: 2 }}>
+                        MRP {extractedFields['mrp']?.value || '₹50/-'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Center: Product Name Box */}
+                  <div style={{
+                    alignSelf: 'center',
+                    border: '2px solid #16a34a',
+                    padding: '0.3rem 0.8rem',
+                    borderRadius: 6,
+                    background: 'rgba(22, 163, 74, 0.1)',
+                    textAlign: 'center'
+                  }}>
+                    <div style={{ background: '#b91c1c', color: 'white', padding: '0.2rem 0.6rem', borderRadius: 4, fontWeight: 900, fontSize: '0.95rem' }}>
+                      {inspection.product_name}
+                    </div>
+                    <span style={{ fontSize: '0.55rem', background: '#16a34a', color: 'white', padding: '0.05rem 0.25rem', borderRadius: 2, display: 'inline-block', marginTop: 2 }}>
+                      Declared Product Name
+                    </span>
+                  </div>
+
+                  {/* Bottom Row: Net Qty & Mfg Address */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                    <div style={{
+                      border: '1.5px solid #f97316',
+                      padding: '0.15rem 0.4rem',
+                      borderRadius: 4,
+                      background: 'rgba(249, 115, 22, 0.15)'
+                    }}>
+                      <p style={{ fontSize: '0.68rem', fontWeight: 700, color: '#7c2d12', margin: 0 }}>
+                        Net Qty: {extractedFields['net_quantity']?.value || '800 g'}
+                      </p>
+                    </div>
+
+                    <div style={{
+                      maxWidth: '55%',
+                      border: '1.5px solid #0891b2',
+                      padding: '0.15rem 0.35rem',
+                      borderRadius: 4,
+                      background: 'rgba(8, 145, 178, 0.15)'
+                    }}>
+                      <p style={{ fontSize: '0.52rem', color: '#155e75', lineHeight: 1.1, margin: 0 }}>
+                        {extractedFields['manufacturer']?.value ? extractedFields['manufacturer'].value.slice(0, 45) + '...' : 'Parle Products Pvt. Ltd.'}
+                      </p>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
 
@@ -416,7 +478,7 @@ export default function InspectionResultPage() {
               OCR View
             </button>
             <Link
-              href={`/inspections/${id}/evidence`}
+              href={`/inspections/${inspection.id}/evidence`}
               style={{
                 padding: '0.35rem 0.55rem',
                 border: '1px solid #e2e8f0',
@@ -447,7 +509,15 @@ export default function InspectionResultPage() {
               <div style={{ position: 'relative', width: 84, height: 84, flexShrink: 0 }}>
                 <svg viewBox="0 0 36 36" style={{ width: '100%', height: '100%', transform: 'rotate(-90deg)' }}>
                   <circle cx="18" cy="18" r="14" fill="none" stroke="#e2e8f0" strokeWidth="3.5" />
-                  <circle cx="18" cy="18" r="14" fill="none" stroke="#10b981" strokeWidth="3.5" strokeDasharray="82 100" />
+                  <circle
+                    cx="18"
+                    cy="18"
+                    r="14"
+                    fill="none"
+                    stroke={isCompliant ? '#10b981' : isWarning ? '#f59e0b' : '#ef4444'}
+                    strokeWidth="3.5"
+                    strokeDasharray={`${score.weighted_score} 100`}
+                  />
                 </svg>
                 <div style={{
                   position: 'absolute',
@@ -459,23 +529,37 @@ export default function InspectionResultPage() {
                   fontWeight: 800,
                   color: '#0f172a'
                 }}>
-                  82%
+                  {Math.round(score.weighted_score)}%
                 </div>
               </div>
 
-              {/* Warning Banner */}
+              {/* Status Banner */}
               <div style={{
-                background: '#fffbeb',
-                border: '1px solid #fde68a',
+                background: isCompliant ? '#f0fdf4' : isWarning ? '#fffbeb' : '#fef2f2',
+                border: `1px solid ${isCompliant ? '#bbf7d0' : isWarning ? '#fde68a' : '#fecaca'}`,
                 borderRadius: 8,
                 padding: '0.6rem 0.75rem'
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', color: '#d97706', fontWeight: 700, fontSize: '0.82rem' }}>
-                  <AlertTriangle size={15} />
-                  Potentially Non-Compliant
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.35rem',
+                  color: isCompliant ? '#15803d' : isWarning ? '#d97706' : '#dc2626',
+                  fontWeight: 700,
+                  fontSize: '0.82rem'
+                }}>
+                  {isCompliant ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}
+                  {score.status_label || (isCompliant ? 'Compliant' : 'Potentially Non-Compliant')}
                 </div>
-                <p style={{ fontSize: '0.72rem', color: '#92400e', marginTop: 2, lineHeight: 1.3 }}>
-                  Some mandatory declarations are missing or could not be detected. Manual review is recommended.
+                <p style={{
+                  fontSize: '0.72rem',
+                  color: isCompliant ? '#166534' : isWarning ? '#92400e' : '#991b1b',
+                  marginTop: 2,
+                  lineHeight: 1.3
+                }}>
+                  {isCompliant
+                    ? 'All mandatory packaging declarations are fully present and verified.'
+                    : 'Some mandatory declarations are missing or require manual inspector review.'}
                 </p>
               </div>
             </div>
@@ -484,31 +568,43 @@ export default function InspectionResultPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', fontSize: '0.78rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Product</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Parle-G Biscuits</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>{inspection.product_name}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Category</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Food & Beverages</span>
+                <span style={{ fontWeight: 600, color: '#1e293b', textTransform: 'capitalize' }}>
+                  {inspection.product_category.replace(/_/g, ' ')}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Brand</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Parle</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {inspection.product_name.split(' ')[0] || 'Declared Brand'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Net Quantity (Declared)</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>800 g</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {extractedFields['net_quantity']?.value || '—'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>MRP (Declared)</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>₹50/-</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {extractedFields['mrp']?.value || '—'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Manufacturer</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>Parle Products Pvt. Ltd.</span>
+                <span style={{ fontWeight: 600, color: '#1e293b', maxWidth: 170, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {extractedFields['manufacturer']?.value || '—'}
+                </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Date of Manufacture</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>08/2026</span>
+                <span style={{ fontWeight: 600, color: '#1e293b' }}>
+                  {extractedFields['date_mfg_pkd']?.value || '—'}
+                </span>
               </div>
             </div>
           </div>
@@ -524,57 +620,95 @@ export default function InspectionResultPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', textAlign: 'center', gap: '0.35rem' }}>
               <div>
                 <p style={{ fontSize: '0.65rem', color: '#64748b' }}>Total</p>
-                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>8</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>
+                  {complianceResults.length || 7}
+                </p>
               </div>
               <div>
                 <p style={{ fontSize: '0.65rem', color: '#059669' }}>Passed</p>
-                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981' }}>5</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#10b981' }}>
+                  {score.passed_count ?? 0}
+                </p>
               </div>
               <div>
                 <p style={{ fontSize: '0.65rem', color: '#dc2626' }}>Failed</p>
-                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ef4444' }}>1</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#ef4444' }}>
+                  {score.failed_count ?? 0}
+                </p>
               </div>
               <div>
                 <p style={{ fontSize: '0.65rem', color: '#d97706' }}>Warnings</p>
-                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f59e0b' }}>2</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#f59e0b' }}>
+                  {score.review_count ?? 0}
+                </p>
               </div>
               <div>
                 <p style={{ fontSize: '0.65rem', color: '#2563eb' }}>Review</p>
-                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1a6ef5' }}>2</p>
+                <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1a6ef5' }}>
+                  {score.review_count ?? 0}
+                </p>
               </div>
             </div>
           </div>
 
           {/* Card: Key Issues Alert */}
           <div style={{
-            background: '#fff5f5',
-            border: '1px solid #fed7d7',
+            background: criticalIssues.length > 0 ? '#fff5f5' : '#f0fdf4',
+            border: `1px solid ${criticalIssues.length > 0 ? '#fed7d7' : '#bbf7d0'}`,
             borderRadius: 10,
             padding: '0.85rem 1rem',
             fontSize: '0.78rem'
           }}>
-            <p style={{ fontWeight: 700, color: '#9b2c2c', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <AlertCircle size={14} /> Key Issues
+            <p style={{
+              fontWeight: 700,
+              color: criticalIssues.length > 0 ? '#9b2c2c' : '#166534',
+              marginBottom: '0.4rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.35rem'
+            }}>
+              {criticalIssues.length > 0 ? <AlertCircle size={14} /> : <CheckCircle2 size={14} />}
+              {criticalIssues.length > 0 ? 'Key Issues' : 'Compliance Check Clear'}
             </p>
-            <p style={{ color: '#c53030', fontWeight: 600 }}>• 1 Critical Issue</p>
-            <p style={{ color: '#742a2a', fontSize: '0.72rem', paddingLeft: '0.75rem', marginBottom: '0.4rem' }}>
-              Consumer Care Information not detected (Required under Rule 6(1)(f))
-            </p>
-            <p style={{ color: '#dd6b20', fontWeight: 600 }}>• 2 Warnings</p>
-            <p style={{ color: '#7b341e', fontSize: '0.72rem', paddingLeft: '0.75rem' }}>
-              Best Before / Expiry date not detected · Country of Origin not detected
-            </p>
+            {criticalIssues.length > 0 ? (
+              <>
+                <p style={{ color: '#c53030', fontWeight: 600 }}>
+                  • {criticalIssues.length} Critical Issue{criticalIssues.length > 1 ? 's' : ''}
+                </p>
+                {criticalIssues.map((iss, i) => (
+                  <p key={i} style={{ color: '#742a2a', fontSize: '0.72rem', paddingLeft: '0.75rem', marginBottom: '0.25rem' }}>
+                    {iss.field.replace(/_/g, ' ')}: {iss.explanation}
+                  </p>
+                ))}
+              </>
+            ) : (
+              <p style={{ color: '#15803d', fontSize: '0.75rem' }}>
+                All mandatory rules passed according to Legal Metrology (Packaged Commodities) Rules, 2011.
+              </p>
+            )}
+            {warningIssues.length > 0 && (
+              <>
+                <p style={{ color: '#dd6b20', fontWeight: 600, marginTop: 4 }}>
+                  • {warningIssues.length} Warning{warningIssues.length > 1 ? 's' : ''} / Reviews
+                </p>
+                {warningIssues.map((w, i) => (
+                  <p key={i} style={{ color: '#7b341e', fontSize: '0.72rem', paddingLeft: '0.75rem' }}>
+                    {w.field.replace(/_/g, ' ')}: {w.explanation}
+                  </p>
+                ))}
+              </>
+            )}
           </div>
 
           {/* Actions */}
           <div className="card" style={{ padding: '0.85rem 1rem' }}>
             <Link
-              href={`/reports`}
+              href={`/reports?id=${inspection.id}`}
               className="btn btn-primary"
               style={{ width: '100%', fontSize: '0.82rem', padding: '0.55rem', marginBottom: '0.5rem' }}
             >
               <FileText size={15} />
-              Generate Inspection Report
+              View Official Certificate
             </Link>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
@@ -587,7 +721,7 @@ export default function InspectionResultPage() {
                 {verified ? 'Verified' : 'Mark as Verified'}
               </button>
               <Link
-                href={`/inspections/${id}/analyzing`}
+                href={`/inspections/${inspection.id}/analyzing`}
                 className="btn btn-secondary"
                 style={{ fontSize: '0.75rem', padding: '0.45rem' }}
               >
@@ -629,54 +763,65 @@ export default function InspectionResultPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredChecks.map((row) => (
-                <tr key={row.num}>
-                  <td style={{ color: '#94a3b8', fontWeight: 600 }}>{row.num}</td>
-                  <td style={{ fontWeight: 600 }}>{row.name}</td>
-                  <td>
-                    {row.statusType === 'pass' && (
-                      <span className="badge badge-compliant">
-                        <Check size={12} /> Pass
-                      </span>
-                    )}
-                    {row.statusType === 'issue' && (
-                      <span className="badge badge-noncompliant">
-                        <XCircle size={12} /> Issue
-                      </span>
-                    )}
-                    {row.statusType === 'warning' && (
-                      <span className="badge badge-review">
-                        <AlertTriangle size={12} /> Warning
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ fontWeight: row.value === 'Not detected' ? 400 : 600, color: row.value === 'Not detected' ? '#ef4444' : '#1e293b' }}>
-                    {row.value}
-                  </td>
-                  <td style={{ color: row.conf !== '—' ? '#059669' : '#94a3b8', fontWeight: 600 }}>
-                    {row.conf}
-                  </td>
-                  <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                    {row.rule}
-                  </td>
-                  <td>
-                    {row.hasEvidence ? (
+              {filteredChecks.map((row, idx) => {
+                const statusLower = row.status.toLowerCase();
+                const isPass = statusLower === 'pass';
+                const isIssue = statusLower === 'fail';
+                const isWarn = statusLower === 'review';
+                const confVal = extractedFields[row.field]?.confidence
+                  ? `${Math.round(extractedFields[row.field].confidence * 100)}%`
+                  : '—';
+
+                return (
+                  <tr key={row.rule_id || idx}>
+                    <td style={{ color: '#94a3b8', fontWeight: 600 }}>{idx + 1}</td>
+                    <td style={{ fontWeight: 600, textTransform: 'capitalize' }}>
+                      {row.field.replace(/_/g, ' ')}
+                    </td>
+                    <td>
+                      {isPass && (
+                        <span className="badge badge-compliant">
+                          <Check size={12} /> Pass
+                        </span>
+                      )}
+                      {isIssue && (
+                        <span className="badge badge-noncompliant">
+                          <XCircle size={12} /> Issue
+                        </span>
+                      )}
+                      {isWarn && (
+                        <span className="badge badge-review">
+                          <AlertTriangle size={12} /> Warning
+                        </span>
+                      )}
+                    </td>
+                    <td style={{
+                      fontWeight: !row.detected_value || row.detected_value === 'Not detected' ? 400 : 600,
+                      color: !row.detected_value || row.detected_value === 'Not detected' ? '#ef4444' : '#1e293b'
+                    }}>
+                      {row.detected_value || 'Not detected'}
+                    </td>
+                    <td style={{ color: confVal !== '—' ? '#059669' : '#94a3b8', fontWeight: 600 }}>
+                      {confVal}
+                    </td>
+                    <td style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                      {row.source_reference || row.rule_id}
+                    </td>
+                    <td>
                       <Link
-                        href={row.link}
+                        href={isIssue ? `/inspections/${inspection.id}/violation?rule=${row.rule_id}` : `/inspections/${inspection.id}/evidence?field=${row.field}`}
                         className="btn btn-secondary"
                         style={{ padding: '0.2rem 0.6rem', fontSize: '0.72rem' }}
                       >
                         <Eye size={12} /> View
                       </Link>
-                    ) : (
-                      <span style={{ color: '#94a3b8' }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ fontSize: '0.78rem', color: row.statusType === 'issue' ? '#ef4444' : '#64748b' }}>
-                    {row.remarks}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td style={{ fontSize: '0.78rem', color: isIssue ? '#ef4444' : '#64748b' }}>
+                      {row.explanation}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
