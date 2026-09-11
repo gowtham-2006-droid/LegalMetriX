@@ -246,33 +246,46 @@ class NLPService:
         return results
 
     @staticmethod
+    def _clean_val(val: Any) -> Optional[str]:
+        if val is None:
+            return None
+        s = str(val).strip()
+        if not s or s.lower() in ("none", "null", "n/a", "undefined", "—", "-", "not detected", "not visible"):
+            return None
+        negative_markers = ["not detected", "not visible", "not found", "missing", "unspecified", "details not visible", "zero ocr"]
+        if any(m in s.lower() for m in negative_markers):
+            return None
+        return s
+
+    @staticmethod
     def format_vision_fields(vision_fields: Dict[str, Any], ocr_lines: List[Dict[str, Any]]) -> Dict[str, Any]:
         results = {}
         for field, f_data in vision_fields.items():
             if not isinstance(f_data, dict):
                 continue
-            val = f_data.get("value")
-            conf = float(f_data.get("confidence", 0.0))
-            norm = f_data.get("normalized")
-            if not norm and f_data.get("amount") is not None:
+            raw_val = f_data.get("value")
+            cleaned_val = NLPService._clean_val(raw_val)
+            conf = float(f_data.get("confidence", 0.0)) if cleaned_val else 0.0
+            norm = f_data.get("normalized") if cleaned_val else None
+            if cleaned_val and not norm and f_data.get("amount") is not None:
                 norm = {
                     "amount": float(f_data.get("amount")),
                     "unit": f_data.get("unit") or ("INR" if field == "mrp" else "g")
                 }
             matched_bbox = None
             source_text = None
-            if val:
+            if cleaned_val:
                 for line in ocr_lines:
-                    if line.get("field") == field or any(token.lower() in line["text"].lower() for token in str(val).split()[:2]):
+                    if line.get("field") == field or any(token.lower() in line["text"].lower() for token in str(cleaned_val).split()[:2]):
                         matched_bbox = line.get("bbox")
                         source_text = line.get("text")
                         break
 
             results[field] = {
-                "value": val if val else None,
+                "value": cleaned_val,
                 "normalized": norm,
                 "confidence": round(conf, 2),
-                "source_text": source_text or (val if val else None),
+                "source_text": source_text or cleaned_val,
                 "source_bbox": matched_bbox
             }
         return results

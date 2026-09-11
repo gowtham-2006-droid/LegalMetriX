@@ -523,26 +523,26 @@ export default function InspectionResultPage() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Net Quantity (Declared)</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                  {extractedFields['net_quantity']?.value || '—'}
+                <span style={{ fontWeight: 600, color: extractedFields['net_quantity']?.value ? '#1e293b' : '#dc2626' }}>
+                  {extractedFields['net_quantity']?.value || 'Not Detected'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>MRP (Declared)</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                  {extractedFields['mrp']?.value || '—'}
+                <span style={{ fontWeight: 600, color: extractedFields['mrp']?.value ? '#1e293b' : '#dc2626' }}>
+                  {extractedFields['mrp']?.value || 'Not Detected'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Manufacturer</span>
-                <span style={{ fontWeight: 600, color: '#1e293b', maxWidth: 170, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {extractedFields['manufacturer']?.value || '—'}
+                <span style={{ fontWeight: 600, color: extractedFields['manufacturer']?.value ? '#1e293b' : '#dc2626', maxWidth: 170, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {extractedFields['manufacturer']?.value || 'Not Detected'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Date of Manufacture</span>
-                <span style={{ fontWeight: 600, color: '#1e293b' }}>
-                  {extractedFields['date_mfg_pkd']?.value || '—'}
+                <span style={{ fontWeight: 600, color: extractedFields['date_mfg_pkd']?.value ? '#1e293b' : '#dc2626' }}>
+                  {extractedFields['date_mfg_pkd']?.value || 'Not Detected'}
                 </span>
               </div>
             </div>

@@ -109,22 +109,46 @@ class RuleEngineService:
         min_conf = logic.get("min_confidence", 0.70)
         expected = rule.requirement
 
-        # 1. Check for absence
-        if not val or str(val).strip() == "" or str(val).lower() == "none" or str(val).lower() == "null":
-            detected = "Not detected in OCR output"
-            # If the rule specifically allows Needs Review for absence or confidence
+        # 1. Check for absence or negative indicator strings
+        is_absent = False
+        if val is None:
+            is_absent = True
+        else:
+            s_val = str(val).strip().lower()
+            if not s_val or s_val in ("none", "null", "n/a", "undefined", "—", "-", "not detected", "not visible"):
+                is_absent = True
+            elif any(m in s_val for m in ["not detected", "not visible", "not found", "missing", "unspecified", "details not visible", "zero ocr"]):
+                is_absent = True
+
+        # Semantic field format checks
+        if not is_absent and rule.input_field == "mrp":
+            import re
+            if not re.search(r'\d+', str(val)):
+                is_absent = True
+
+        if not is_absent and rule.input_field == "date_mfg_pkd":
+            import re
+            if not re.search(r'\d+', str(val)):
+                is_absent = True
+
+        if not is_absent and rule.input_field == "manufacturer":
+            if len(str(val).strip()) < 5:
+                is_absent = True
+
+        if is_absent:
+            detected = "Not detected on packaging surface"
             if rule.result_if_absent == "Needs Review":
                 status = "Needs Review"
                 status_desc = "not detected and requires manual confirmation"
             else:
                 status = "Fail"
-                status_desc = "missing from package declarations"
+                status_desc = "missing from mandatory package declarations"
             
             explanation = (
                 f"Checked: {rule.rule_name}. Detected: {detected}. Expected: {expected}. "
-                f"Status: Potential Non-Compliance. {rule.explanation_template.format(status_desc=status_desc, detected=detected)}"
+                f"Status: Non-Compliant violation. {rule.explanation_template.format(status_desc=status_desc, detected=detected)}"
             )
-            evidence = "Zero OCR keyword/text match found on package surface."
+            evidence = "No valid declaration found in analyzed packaging frame."
             return status, explanation, evidence, detected, expected
 
         # 2. Check confidence thresholds (PRD §20)
@@ -158,3 +182,4 @@ class RuleEngineService:
         )
         evidence = f"Text span: '{source_text or detected}' (Confidence: {conf:.2f})"
         return status, explanation, evidence, detected, expected
+
