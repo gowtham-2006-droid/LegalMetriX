@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.data.default_rules import DEFAULT_COMPLIANCE_RULES
 from app.services.rule_engine import RuleEngineService
 from app.services.report_service import ReportService
+from app.services.ocr_service import OCRService
 
 def init_database():
     # Create all tables
