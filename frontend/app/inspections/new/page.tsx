@@ -204,12 +204,7 @@ export default function NewInspectionPage() {
       </div>
 
       {/* Main 2-Column Grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '2fr 1fr',
-        gap: '1.5rem',
-        alignItems: 'flex-start'
-      }}>
+      <div className="grid-2-1-cols">
         {/* Left Column: Form Steps */}
         <form onSubmit={handleStartAnalysis} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
           {/* Step 1: Upload Product Package Surfaces */}
@@ -257,7 +252,7 @@ export default function NewInspectionPage() {
             />
 
             {/* Dual Dropzone Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+            <div className="grid-2-cols" style={{ marginBottom: '1.25rem' }}>
               {/* Panel 1: Front Face (PDP) */}
               <div
                 style={{
@@ -554,7 +549,7 @@ export default function NewInspectionPage() {
               2. Product Details (Optional)
             </h2>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+            <div className="grid-2-cols" style={{ marginBottom: '1.25rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
                   Product Category <span style={{ color: '#ef4444' }}>*</span>
@@ -592,7 +587,7 @@ export default function NewInspectionPage() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+            <div className="grid-2-cols" style={{ marginBottom: '1.25rem' }}>
               <div>
                 <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 600, color: '#334155', marginBottom: '0.4rem' }}>
                   Brand <span style={{ color: '#94a3b8', fontWeight: 400 }}>(Optional)</span>

@@ -218,12 +218,7 @@ export default function AnalyzingProductPage() {
       </div>
 
       {/* 2-Column Layout */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '2fr 1fr',
-        gap: '1.5rem',
-        alignItems: 'flex-start'
-      }}>
+      <div className="grid-2-1-cols">
         {/* Left Column: AI Analysis Pipeline Stepper */}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>

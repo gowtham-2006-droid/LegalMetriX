@@ -68,24 +68,9 @@ export default function LoginPage() {
 
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'grid',
-      gridTemplateColumns: '1.05fr 0.95fr',
-      backgroundColor: '#f8fafc',
-      fontFamily: 'var(--font-sans)'
-    }}>
+    <div className="login-layout">
       {/* LEFT HERO PANEL (Deep Blue Shelf Showcase) */}
-      <div style={{
-        background: 'radial-gradient(ellipse at top left, #173b75 0%, #0c1c38 60%, #071124 100%)',
-        color: '#ffffff',
-        padding: '3.5rem 4rem',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
+      <div className="login-hero-panel">
         {/* Subtle background glow */}
         <div style={{
           position: 'absolute',

@@ -116,12 +116,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Row 1: 5 KPI Cards */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(5, 1fr)',
-        gap: '1.25rem',
-        marginBottom: '1.5rem'
-      }}>
+      <div className="grid-5-cols" style={{ marginBottom: '1.5rem' }}>
         {/* KPI 1: Total Inspections */}
         <div className="card" style={{ padding: '1rem 1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -204,7 +199,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Row 2: Recent Inspections (70%) + Quick Actions & Categories (30%) */}
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1.25rem' }}>
+      <div className="grid-2-1-cols">
         {/* Left: Recent Inspections Table */}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>

@@ -116,7 +116,7 @@ export default function UsersRolesPage() {
       </div>
 
       {/* Summary Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+      <div className="grid-4-cols" style={{ gap: '16px' }}>
         <div style={{ backgroundColor: '#ffffff', padding: '16px 20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
           <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>Active Inspectors</span>
           <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>18</div>

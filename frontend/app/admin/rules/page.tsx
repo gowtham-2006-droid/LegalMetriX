@@ -499,14 +499,7 @@ export default function LegalMetrologyRulesPage() {
         </div>
 
         {/* 4 Summary Stat Cards */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '16px',
-            marginBottom: '20px'
-          }}
-        >
+        <div className="grid-4-cols" style={{ marginBottom: '20px' }}>
           <div
             style={{
               backgroundColor: '#ffffff',
@@ -838,7 +831,7 @@ export default function LegalMetrologyRulesPage() {
         </div>
 
         {/* Bottom Split: Rule Version History & Audit Trail */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div className="grid-2-cols" style={{ gap: '16px' }}>
           {/* Rule Version History */}
           <div
             style={{

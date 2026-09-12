@@ -1,10 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Bell, ChevronDown, UserCheck, ShieldAlert, LogOut } from 'lucide-react';
+import { Bell, ChevronDown, UserCheck, ShieldAlert, LogOut, Menu } from 'lucide-react';
 import Link from 'next/link';
 
-export default function Header() {
+export default function Header({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   const [userRole, setUserRole] = useState<'inspector' | 'admin'>('inspector');
   const [userName, setUserName] = useState('Inspector-01');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -37,8 +37,18 @@ export default function Header() {
 
   return (
     <header className="top-header">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-        {/* Can be customized per page or rendered empty */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+        <button
+          className="mobile-menu-btn"
+          onClick={onToggleSidebar}
+          aria-label="Open navigation menu"
+          type="button"
+        >
+          <Menu size={20} />
+        </button>
+        <span className="mobile-brand-title">
+          Legal<span style={{ color: '#1a6ef5' }}>MetriX</span>
+        </span>
       </div>
 
       <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', position: 'relative' }}>

@@ -99,7 +99,7 @@ export default function SettingsPage() {
       </div>
 
       {/* Main Grid: Left Settings Panels & Right Profile Card */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '24px', alignItems: 'start' }}>
+      <div className="grid-2-1-cols" style={{ gap: '24px' }}>
         {/* Left Column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           {/* Personal Information */}

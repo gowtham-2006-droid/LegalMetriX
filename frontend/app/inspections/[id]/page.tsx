@@ -303,13 +303,7 @@ export default function InspectionResultPage() {
       </div>
 
       {/* Top 3-Column Section */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1.15fr 1fr 1fr',
-        gap: '1.25rem',
-        marginBottom: '1.25rem',
-        alignItems: 'start'
-      }}>
+      <div className="grid-inspection-detail" style={{ marginBottom: '1.25rem' }}>
         {/* Col 1: Product Image (Analyzed) with Interactive Views */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div>
@@ -733,7 +727,7 @@ export default function InspectionResultPage() {
             <h4 style={{ fontSize: '0.85rem', fontWeight: 700, marginBottom: '0.65rem' }}>
               Inspection Summary
             </h4>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', textAlign: 'center', gap: '0.35rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(55px, 1fr))', textAlign: 'center', gap: '0.35rem' }}>
               <div>
                 <p style={{ fontSize: '0.65rem', color: '#64748b' }}>Total</p>
                 <p style={{ fontSize: '1.1rem', fontWeight: 800, color: '#1e293b' }}>

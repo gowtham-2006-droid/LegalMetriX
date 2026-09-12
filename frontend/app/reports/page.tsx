@@ -198,7 +198,7 @@ function InspectionReportContent() {
         </div>
 
         {/* Title & Metadata Block */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '1.5rem', marginBottom: '1.75rem' }}>
+        <div className="grid-2-1-cols" style={{ marginBottom: '1.75rem' }}>
           <div>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', letterSpacing: '-0.02em', margin: 0 }}>
               Inspection Report
@@ -240,7 +240,7 @@ function InspectionReportContent() {
         </div>
 
         {/* Section 1 & 2: Product Image & Product Details */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1.5rem', marginBottom: '1.75rem' }}>
+        <div className="grid-2-1-cols" style={{ marginBottom: '1.75rem' }}>
           {/* 1. Product Image Showcase */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -401,7 +401,7 @@ function InspectionReportContent() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', textAlign: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '0.75rem', fontSize: '0.82rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', textAlign: 'center', borderTop: '1px solid #f1f5f9', paddingTop: '0.75rem', fontSize: '0.82rem', gap: '0.5rem' }}>
             <div><strong style={{ color: '#10b981', fontSize: '1.1rem' }}>{score.passed_count ?? 5}</strong><br /><span style={{ color: '#64748b' }}>Passed Rules</span></div>
             <div><strong style={{ color: '#ef4444', fontSize: '1.1rem' }}>{score.failed_count ?? 1}</strong><br /><span style={{ color: '#64748b' }}>Failed Rules</span></div>
             <div><strong style={{ color: '#f59e0b', fontSize: '1.1rem' }}>{score.review_count ?? 2}</strong><br /><span style={{ color: '#64748b' }}>Manual Reviews</span></div>

@@ -212,12 +212,7 @@ function VisualEvidenceContent() {
       </div>
 
       {/* Main 2-Column Layout */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1.25fr 1fr',
-        gap: '1.5rem',
-        alignItems: 'flex-start'
-      }}>
+      <div className="grid-evidence-layout">
         {/* Left Column: Product Image with AI Detections & Zoom Controls */}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>

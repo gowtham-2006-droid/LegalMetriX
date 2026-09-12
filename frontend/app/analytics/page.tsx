@@ -135,7 +135,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Row 1: 5 Top Metric Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1.25rem', marginBottom: '1.25rem' }}>
+      <div className="grid-5-cols" style={{ marginBottom: '1.25rem' }}>
         <div className="card" style={{ padding: '1.1rem' }}>
           <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', color: '#1a6ef5', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '0.5rem' }}>
             <FileText size={18} />
@@ -201,7 +201,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Row 2: Inspection Trend + Compliance Rate Donut + Violation Distribution */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr 1.2fr', gap: '1.25rem', marginBottom: '1.25rem' }}>
+      <div className="grid-1-2-1-cols" style={{ marginBottom: '1.25rem' }}>
         {/* Inspection Trend Line Spline Chart */}
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>

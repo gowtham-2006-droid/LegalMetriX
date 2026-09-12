@@ -213,12 +213,7 @@ function ViolationDetailsContent() {
       </div>
 
       {/* 2-Column Layout */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1.15fr 1fr',
-        gap: '1.5rem',
-        alignItems: 'flex-start'
-      }}>
+      <div className="grid-evidence-layout">
         {/* Left Column: Image with Red Highlight & OCR Text */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Card 1: Product Image with Highlighted Area */}

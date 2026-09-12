@@ -237,7 +237,7 @@ export default function InspectionHistoryPage() {
       </div>
 
       {/* 4 Summary Stat Pills */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+      <div className="grid-4-cols" style={{ marginBottom: '1.25rem' }}>
         <div className="card" style={{ padding: '0.75rem 1.25rem', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
           <div style={{ width: 34, height: 34, borderRadius: 8, background: '#eff6ff', color: '#1a6ef5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <FileText size={18} />
@@ -289,12 +289,7 @@ export default function InspectionHistoryPage() {
       </div>
 
       {/* Main Split: Table (65%) + Right Details Drawer (35%) */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: '1.8fr 1fr',
-        gap: '1.25rem',
-        alignItems: 'flex-start'
-      }}>
+      <div className="grid-2-1-cols">
         {/* Left: Table */}
         <div className="card">
           {loading ? (
