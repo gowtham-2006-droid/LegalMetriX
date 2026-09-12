@@ -204,6 +204,45 @@ export default function InspectionResultPage() {
   const criticalIssues = complianceResults.filter((c) => c.status.toLowerCase() === 'fail');
   const warningIssues = complianceResults.filter((c) => c.status.toLowerCase() === 'review');
 
+  // Multi-tier declaration resolver: extractedFields -> aliases -> compliance results -> grounded OCR lines
+  const getFieldValue = (fieldName: string, aliases: string[] = []): string | null => {
+    // 1. Direct extracted field
+    const directVal = extractedFields[fieldName]?.value;
+    if (directVal && !directVal.toLowerCase().includes('not detected')) {
+      return directVal;
+    }
+    // 2. Aliases
+    for (const alias of aliases) {
+      const aliasVal = extractedFields[alias]?.value;
+      if (aliasVal && !aliasVal.toLowerCase().includes('not detected')) {
+        return aliasVal;
+      }
+    }
+    // 3. Check compliance results detected_value
+    const compMatch = complianceResults.find(
+      (c) => (c.field === fieldName || aliases.includes(c.field)) &&
+        c.detected_value &&
+        !c.detected_value.toLowerCase().includes('not detected') &&
+        !c.detected_value.toLowerCase().includes('not visible')
+    );
+    if (compMatch?.detected_value) {
+      return compMatch.detected_value;
+    }
+    // 4. Check grounded OCR lines tagged with this field
+    const ocrMatch = ocrLines.find(
+      (l: any) => typeof l === 'object' && (l.field === fieldName || aliases.includes(l.field)) && l.text
+    ) as any;
+    if (ocrMatch?.text) {
+      return ocrMatch.text;
+    }
+    return null;
+  };
+
+  const displayDateMfg = getFieldValue('date_mfg_pkd', ['date_of_manufacture', 'mfg_date', 'date']);
+  const displayMrp = getFieldValue('mrp', ['max_retail_price', 'price']);
+  const displayNetQty = getFieldValue('net_quantity', ['quantity', 'net_weight', 'net_volume']);
+  const displayManufacturer = getFieldValue('manufacturer', ['mfg_name', 'packer', 'manufacturer_name']);
+
   return (
     <div>
       {/* Top Breadcrumb */}
@@ -694,26 +733,26 @@ export default function InspectionResultPage() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Net Quantity (Declared)</span>
-                <span style={{ fontWeight: 600, color: extractedFields['net_quantity']?.value ? '#1e293b' : '#dc2626' }}>
-                  {extractedFields['net_quantity']?.value || 'Not Detected'}
+                <span style={{ fontWeight: 600, color: displayNetQty ? '#1e293b' : '#dc2626' }}>
+                  {displayNetQty || 'Not Detected'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>MRP (Declared)</span>
-                <span style={{ fontWeight: 600, color: extractedFields['mrp']?.value ? '#1e293b' : '#dc2626' }}>
-                  {extractedFields['mrp']?.value || 'Not Detected'}
+                <span style={{ fontWeight: 600, color: displayMrp ? '#1e293b' : '#dc2626' }}>
+                  {displayMrp || 'Not Detected'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f8fafc', paddingBottom: 4 }}>
                 <span style={{ color: '#64748b' }}>Manufacturer</span>
-                <span style={{ fontWeight: 600, color: extractedFields['manufacturer']?.value ? '#1e293b' : '#dc2626', maxWidth: 170, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {extractedFields['manufacturer']?.value || 'Not Detected'}
+                <span style={{ fontWeight: 600, color: displayManufacturer ? '#1e293b' : '#dc2626', maxWidth: 170, textAlign: 'right', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {displayManufacturer || 'Not Detected'}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748b' }}>Date of Manufacture</span>
-                <span style={{ fontWeight: 600, color: extractedFields['date_mfg_pkd']?.value ? '#1e293b' : '#dc2626' }}>
-                  {extractedFields['date_mfg_pkd']?.value || 'Not Detected'}
+                <span style={{ fontWeight: 600, color: displayDateMfg ? '#1e293b' : '#dc2626' }}>
+                  {displayDateMfg || 'Not Detected'}
                 </span>
               </div>
             </div>

@@ -26,8 +26,8 @@ class NLPService:
         if settings.GROQ_API_KEY and settings.GROQ_API_KEY.strip():
             groq_result = NLPService._extract_with_groq(combined_text, product_category)
             if groq_result:
-                # Merge with geometry from OCR
-                return NLPService._attach_source_spans(groq_result, ocr_lines)
+                # Format, attach source spans, and backfill any missing declarations from OCR lines
+                return NLPService.format_vision_fields(groq_result, ocr_lines)
 
         # 2. Resilient Rule-Based / Regex Extraction Fallback
         return NLPService._extract_with_regex(ocr_lines, combined_text)
@@ -259,28 +259,72 @@ class NLPService:
         }
 
         # 6. Dates (Manufacture / Packaging / Expiry / Best Before Period)
-        date_pattern = re.compile(r'(?:MFG|PKD|PACKED|MANUFACTURED|USE BY|EXP|BEFORE)?[:.\s-]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{4}|\w{3}[/-]\d{4})', re.IGNORECASE)
+        date_pattern = re.compile(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{4}|\w{3}[/-]\d{4})', re.IGNORECASE)
         bb_pattern = re.compile(r'(BEST\s*BEFORE\s*\d+\s*(?:MONTHS|DAYS|YEARS)(?:\s*FROM\s*[A-Z]+)?)', re.IGNORECASE)
         date_match = None
+
+        # Priority 1: Check lines explicitly tagged as date_mfg_pkd by the vision engine
         for line in ocr_lines:
-            text_u = line["text"].upper()
-            if any(k in text_u for k in ["MFG", "PKD", "DATE", "BEST BEFORE", "EXPIRY", "BATCH"]):
+            if line.get("field") == "date_mfg_pkd" and line.get("text"):
+                m = date_pattern.search(line["text"])
+                val = m.group(1) if m else line["text"].strip()
+                date_match = {
+                    "value": val,
+                    "confidence": round(float(line.get("confidence", 0.95)), 2),
+                    "source_text": line["text"],
+                    "source_bbox": line.get("bbox")
+                }
+                break
+
+        # Priority 2: Explicit Manufacturing / Packing markers (MFG, PKD, PACKED, MANUFACTURE)
+        if not date_match:
+            for line in ocr_lines:
+                text_u = line["text"].upper()
+                if any(k in text_u for k in ["MFG", "PKD", "PACKED", "MANUFACTURE"]):
+                    match = date_pattern.search(line["text"])
+                    if match:
+                        date_match = {
+                            "value": match.group(1),
+                            "confidence": round(float(line.get("confidence", 0.90)), 2),
+                            "source_text": line["text"],
+                            "source_bbox": line.get("bbox")
+                        }
+                        break
+
+        # Priority 3: General DATE, BATCH, or BEST BEFORE
+        if not date_match:
+            for line in ocr_lines:
+                text_u = line["text"].upper()
+                if any(k in text_u for k in ["DATE", "BATCH", "BEST BEFORE"]):
+                    match = date_pattern.search(line["text"])
+                    if match:
+                        date_match = {
+                            "value": match.group(1),
+                            "confidence": round(float(line.get("confidence", 0.85)), 2),
+                            "source_text": line["text"],
+                            "source_bbox": line.get("bbox")
+                        }
+                        break
+                    bb_match = bb_pattern.search(line["text"])
+                    if bb_match:
+                        date_match = {
+                            "value": bb_match.group(1).title(),
+                            "confidence": round(float(line.get("confidence", 0.85)), 2),
+                            "source_text": line["text"],
+                            "source_bbox": line.get("bbox")
+                        }
+                        break
+
+        # Priority 4: Fallback to standalone date pattern in any line (e.g. "11/2025")
+        if not date_match:
+            for line in ocr_lines:
                 match = date_pattern.search(line["text"])
                 if match:
                     date_match = {
                         "value": match.group(1),
-                        "confidence": round(line["confidence"], 2),
+                        "confidence": round(float(line.get("confidence", 0.80)), 2),
                         "source_text": line["text"],
-                        "source_bbox": line["bbox"]
-                    }
-                    break
-                bb_match = bb_pattern.search(line["text"])
-                if bb_match:
-                    date_match = {
-                        "value": bb_match.group(1).title(),
-                        "confidence": round(line["confidence"], 2),
-                        "source_text": line["text"],
-                        "source_bbox": line["bbox"]
+                        "source_bbox": line.get("bbox")
                     }
                     break
 
@@ -435,6 +479,157 @@ class NLPService:
                 "source_text": source_text or cleaned_val,
                 "source_bbox": matched_bbox
             }
+
+        # Proactive backfill from grounded OCR lines for any standard declaration that was null in vision_fields
+        standard_fields = ["product_name", "net_quantity", "mrp", "manufacturer", "consumer_care", "date_mfg_pkd", "country_of_origin"]
+        for std_f in standard_fields:
+            if std_f not in results:
+                results[std_f] = {
+                    "value": None,
+                    "normalized": None,
+                    "confidence": 0.0,
+                    "source_text": None,
+                    "source_bbox": None
+                }
+
+        # 1. Backfill Date of Manufacture / Packaging if missing or null
+        if not results.get("date_mfg_pkd", {}).get("value") and ocr_lines:
+            date_pattern = re.compile(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{4}|\w{3}[/-]\d{4})', re.IGNORECASE)
+            bb_pattern = re.compile(r'(BEST\s*BEFORE\s*\d+\s*(?:MONTHS|DAYS|YEARS)(?:\s*FROM\s*[A-Z]+)?)', re.IGNORECASE)
+            # Priority A: Directly tagged by vision engine
+            for line in ocr_lines:
+                if line.get("field") == "date_mfg_pkd" and line.get("text"):
+                    m = date_pattern.search(line["text"])
+                    val = m.group(1) if m else line["text"].strip()
+                    results["date_mfg_pkd"] = {
+                        "value": val,
+                        "normalized": {"date": val},
+                        "confidence": round(float(line.get("confidence", 0.95)), 2),
+                        "source_text": line["text"],
+                        "source_bbox": line.get("bbox")
+                    }
+                    break
+            # Priority B: Explicit MFG / PKD / PACKED text markers
+            if not results["date_mfg_pkd"]["value"]:
+                for line in ocr_lines:
+                    text_u = line.get("text", "").upper()
+                    if any(k in text_u for k in ["MFG", "PKD", "PACKED", "MANUFACTURE"]):
+                        m = date_pattern.search(line["text"])
+                        if m:
+                            results["date_mfg_pkd"] = {
+                                "value": m.group(1),
+                                "normalized": {"date": m.group(1)},
+                                "confidence": round(float(line.get("confidence", 0.90)), 2),
+                                "source_text": line["text"],
+                                "source_bbox": line.get("bbox")
+                            }
+                            break
+            # Priority C: General DATE or BATCH or BEST BEFORE
+            if not results["date_mfg_pkd"]["value"]:
+                for line in ocr_lines:
+                    text_u = line.get("text", "").upper()
+                    if any(k in text_u for k in ["DATE", "BATCH", "BEST BEFORE"]):
+                        m = date_pattern.search(line["text"])
+                        if m:
+                            results["date_mfg_pkd"] = {
+                                "value": m.group(1),
+                                "normalized": {"date": m.group(1)},
+                                "confidence": round(float(line.get("confidence", 0.85)), 2),
+                                "source_text": line["text"],
+                                "source_bbox": line.get("bbox")
+                            }
+                            break
+                        bb_m = bb_pattern.search(line["text"])
+                        if bb_m:
+                            results["date_mfg_pkd"] = {
+                                "value": bb_m.group(1).title(),
+                                "normalized": {"date": bb_m.group(1).title()},
+                                "confidence": round(float(line.get("confidence", 0.85)), 2),
+                                "source_text": line["text"],
+                                "source_bbox": line.get("bbox")
+                            }
+                            break
+            # Priority D: Any standalone date format (e.g. 11/2025)
+            if not results["date_mfg_pkd"]["value"]:
+                for line in ocr_lines:
+                    m = date_pattern.search(line.get("text", ""))
+                    if m:
+                        results["date_mfg_pkd"] = {
+                            "value": m.group(1),
+                            "normalized": {"date": m.group(1)},
+                            "confidence": round(float(line.get("confidence", 0.80)), 2),
+                            "source_text": line["text"],
+                            "source_bbox": line.get("bbox")
+                        }
+                        break
+
+        # 2. Backfill MRP if missing or null
+        if not results.get("mrp", {}).get("value") and ocr_lines:
+            mrp_pattern = re.compile(r'(?:₹|Rs\.?|INR)?\s*([0-9]+(?:\.[0-9]{2})?)', re.IGNORECASE)
+            for line in ocr_lines:
+                if (line.get("field") == "mrp" or line.get("is_edge")) and line.get("text"):
+                    m = mrp_pattern.search(line["text"])
+                    if m:
+                        val = float(m.group(1))
+                        if 0.5 <= val <= 99999.0:
+                            results["mrp"] = {
+                                "value": f"₹ {val:.2f}",
+                                "normalized": {"amount": val, "currency": "INR"},
+                                "confidence": round(float(line.get("confidence", 0.92)), 2),
+                                "source_text": line["text"],
+                                "source_bbox": line.get("bbox")
+                            }
+                            break
+
+        # 3. Backfill Net Quantity if missing or null
+        if not results.get("net_quantity", {}).get("value") and ocr_lines:
+            qty_pattern = re.compile(r'(?:NET\s*(?:WT|WEIGHT|QTY|QUANTITY|VOL|VOLUME)?[:.\s-]*)?(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units|tabs|tablets|capsules)\b', re.IGNORECASE)
+            for line in ocr_lines:
+                if line.get("field") == "net_quantity" and line.get("text"):
+                    results["net_quantity"] = {
+                        "value": line["text"].strip(),
+                        "normalized": None,
+                        "confidence": round(float(line.get("confidence", 0.90)), 2),
+                        "source_text": line["text"],
+                        "source_bbox": line.get("bbox")
+                    }
+                    break
+                m = qty_pattern.search(line.get("text", ""))
+                if m:
+                    results["net_quantity"] = {
+                        "value": line["text"].strip(),
+                        "normalized": None,
+                        "confidence": round(float(line.get("confidence", 0.85)), 2),
+                        "source_text": line["text"],
+                        "source_bbox": line.get("bbox")
+                    }
+                    break
+
+        # 4. Backfill Manufacturer if missing or null
+        if not results.get("manufacturer", {}).get("value") and ocr_lines:
+            for line in ocr_lines:
+                if line.get("field") == "manufacturer" and line.get("text"):
+                    results["manufacturer"] = {
+                        "value": line["text"].strip(),
+                        "normalized": None,
+                        "confidence": round(float(line.get("confidence", 0.88)), 2),
+                        "source_text": line["text"],
+                        "source_bbox": line.get("bbox")
+                    }
+                    break
+
+        # 5. Backfill Product Name if missing or null
+        if not results.get("product_name", {}).get("value") and ocr_lines:
+            for line in ocr_lines:
+                if line.get("field") == "product_name" and line.get("text"):
+                    results["product_name"] = {
+                        "value": line["text"].strip().title(),
+                        "normalized": None,
+                        "confidence": round(float(line.get("confidence", 0.90)), 2),
+                        "source_text": line["text"],
+                        "source_bbox": line.get("bbox")
+                    }
+                    break
 
         # Supplementary contextual fields for 14 official Rule 6 declarations
         has_any_detected_declaration = any(
