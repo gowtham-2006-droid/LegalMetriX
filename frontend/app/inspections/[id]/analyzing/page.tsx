@@ -27,6 +27,16 @@ export default function AnalyzingProductPage() {
   const [progress, setProgress] = useState(18);
   const [productData, setProductData] = useState<any>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [retryTrigger, setRetryTrigger] = useState(0);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Track elapsed time
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setElapsedSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Fetch initial inspection details
   useEffect(() => {
@@ -45,6 +55,9 @@ export default function AnalyzingProductPage() {
   // Run the real AI analysis pipeline
   useEffect(() => {
     let isCancelled = false;
+    setErrorMessage('');
+    setCurrentStep(1);
+    setProgress(18);
 
     // Progression timers
     const timer1 = setTimeout(() => {
@@ -52,42 +65,48 @@ export default function AnalyzingProductPage() {
         setCurrentStep(2);
         setProgress(35);
       }
-    }, 700);
+    }, 600);
 
     const timer2 = setTimeout(() => {
       if (!isCancelled) {
         setCurrentStep(3);
         setProgress(52);
       }
-    }, 1400);
+    }, 1200);
 
     const timer3 = setTimeout(() => {
       if (!isCancelled) {
         setCurrentStep(4);
         setProgress(70);
       }
-    }, 2100);
+    }, 1800);
 
     const timer4 = setTimeout(() => {
       if (!isCancelled) {
         setCurrentStep(5);
         setProgress(88);
       }
-    }, 2800);
+    }, 2400);
 
     const executeAnalysis = async () => {
       try {
         const token = localStorage.getItem('metrology_token');
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
+
         const res = await fetch(`/api/inspection/${id}/analyze`, {
           method: 'POST',
           headers: {
             'Authorization': token ? `Bearer ${token}` : ''
-          }
+          },
+          signal: controller.signal
         });
+
+        clearTimeout(timeoutId);
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({ detail: 'Analysis execution failed' }));
-          throw new Error(err.detail || 'Analysis execution failed');
+          throw new Error(err.detail || `Server returned ${res.status}: Analysis could not complete`);
         }
 
         if (!isCancelled) {
@@ -100,7 +119,10 @@ export default function AnalyzingProductPage() {
       } catch (err: any) {
         console.error('Analysis error:', err);
         if (!isCancelled) {
-          setErrorMessage(err.message || 'Error occurred while analyzing product');
+          const msg = err.name === 'AbortError' 
+            ? 'The analysis request timed out. The server might be waking up or busy.'
+            : (err.message || 'Error occurred while analyzing product');
+          setErrorMessage(msg);
         }
       }
     };
@@ -116,7 +138,7 @@ export default function AnalyzingProductPage() {
       clearTimeout(timer3);
       clearTimeout(timer4);
     };
-  }, [id, router]);
+  }, [id, router, retryTrigger]);
 
 
   const steps = [
@@ -156,10 +178,11 @@ export default function AnalyzingProductPage() {
       id: 5,
       title: 'Checking Legal Metrology rules',
       desc: 'Validating extracted information against applicable rules.',
-      time: '3.2s',
+      time: currentStep > 5 ? '3.2s' : (errorMessage ? 'Failed' : (currentStep === 5 ? `${elapsedSeconds}s` : '3.2s')),
       icon: '⚖️',
       completed: currentStep > 5,
-      inProgress: currentStep === 5
+      inProgress: currentStep === 5 && !errorMessage,
+      isFailed: currentStep === 5 && !!errorMessage
     },
     {
       id: 6,
@@ -168,10 +191,16 @@ export default function AnalyzingProductPage() {
       time: currentStep > 6 ? '1.8s' : 'Pending',
       icon: '📄',
       completed: currentStep > 6,
-      inProgress: currentStep === 6,
+      inProgress: currentStep === 6 && !errorMessage,
       pending: currentStep < 6
     },
   ];
+
+  const handleRetry = () => {
+    setErrorMessage('');
+    setElapsedSeconds(0);
+    setRetryTrigger((prev) => prev + 1);
+  };
 
   return (
     <div>
@@ -212,7 +241,7 @@ export default function AnalyzingProductPage() {
             Analyzing Product
           </h1>
           <p style={{ fontSize: '0.85rem', color: '#64748b' }}>
-            Our AI system is analyzing your product. This may take a few moments.
+            Our AI system is analyzing your product. This typically takes 3–5 seconds.
           </p>
         </div>
       </div>
@@ -225,18 +254,78 @@ export default function AnalyzingProductPage() {
             <h2 style={{ fontSize: '1.05rem', fontWeight: 700 }}>AI Analysis Pipeline</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
               <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600 }}>
-                Overall Progress <strong style={{ color: '#1a6ef5' }}>{progress}%</strong>
+                Overall Progress <strong style={{ color: errorMessage ? '#dc2626' : '#1a6ef5' }}>{errorMessage ? 'Paused' : `${progress}%`}</strong>
               </span>
               <div style={{ width: 100, height: 8, borderRadius: 4, background: '#e2e8f0', overflow: 'hidden' }}>
                 <div style={{
                   width: `${progress}%`,
                   height: '100%',
-                  background: 'linear-gradient(90deg, #1a6ef5, #38bdf8)',
+                  background: errorMessage ? '#ef4444' : 'linear-gradient(90deg, #1a6ef5, #38bdf8)',
                   transition: 'width 0.4s ease'
                 }} />
               </div>
             </div>
           </div>
+
+          {/* Actionable Error Alert if backend encounters error */}
+          {errorMessage && (
+            <div style={{
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: 10,
+              padding: '1rem 1.25rem',
+              marginBottom: '1.25rem',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.6rem'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                <span style={{ fontSize: '1.1rem' }}>⚠️</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 700, color: '#991b1b' }}>
+                  Analysis Encountered a Delay or Error
+                </span>
+              </div>
+              <p style={{ fontSize: '0.8rem', color: '#b91c1c', margin: 0, lineHeight: 1.45 }}>
+                {errorMessage}
+              </p>
+              <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.25rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  style={{
+                    padding: '0.45rem 1rem',
+                    background: '#dc2626',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: 6,
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}
+                >
+                  <Loader2 size={14} /> Retry Analysis Now
+                </button>
+                <Link
+                  href={`/inspections/${id}`}
+                  style={{
+                    padding: '0.45rem 1rem',
+                    background: '#ffffff',
+                    color: '#475569',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: 6,
+                    fontSize: '0.82rem',
+                    fontWeight: 600,
+                    textDecoration: 'none'
+                  }}
+                >
+                  View Inspection Record
+                </Link>
+              </div>
+            </div>
+          )}
 
           {/* Stepper Cards */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', position: 'relative' }}>
@@ -249,9 +338,9 @@ export default function AnalyzingProductPage() {
                   justifyContent: 'space-between',
                   padding: '1rem 1.25rem',
                   borderRadius: 10,
-                  border: step.inProgress ? '2px solid #1a6ef5' : '1px solid #e2e8f0',
-                  background: step.inProgress ? '#f0f7ff' : '#ffffff',
-                  boxShadow: step.inProgress ? '0 4px 12px rgba(26, 110, 245, 0.1)' : 'none',
+                  border: step.isFailed ? '2px solid #f87171' : (step.inProgress ? '2px solid #1a6ef5' : '1px solid #e2e8f0'),
+                  background: step.isFailed ? '#fff5f5' : (step.inProgress ? '#f0f7ff' : '#ffffff'),
+                  boxShadow: step.isFailed ? '0 4px 12px rgba(239, 68, 68, 0.12)' : (step.inProgress ? '0 4px 12px rgba(26, 110, 245, 0.1)' : 'none'),
                   transition: 'all 0.2s ease'
                 }}
               >
@@ -261,7 +350,7 @@ export default function AnalyzingProductPage() {
                     width: 42,
                     height: 42,
                     borderRadius: 10,
-                    background: step.completed ? '#ecfdf5' : (step.inProgress ? '#eff6ff' : '#f8fafc'),
+                    background: step.isFailed ? '#fee2e2' : (step.completed ? '#ecfdf5' : (step.inProgress ? '#eff6ff' : '#f8fafc')),
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -283,7 +372,21 @@ export default function AnalyzingProductPage() {
 
                 {/* Status Indicator */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-                  {step.completed ? (
+                  {step.isFailed ? (
+                    <span style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.35rem',
+                      color: '#b91c1c',
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      background: '#fee2e2',
+                      padding: '0.25rem 0.65rem',
+                      borderRadius: 999
+                    }}>
+                      Needs Retry
+                    </span>
+                  ) : step.completed ? (
                     <span style={{
                       display: 'inline-flex',
                       alignItems: 'center',
@@ -332,8 +435,8 @@ export default function AnalyzingProductPage() {
 
           {/* Bottom Info Banner */}
           <div style={{
-            background: '#eff6ff',
-            border: '1px solid #dbeafe',
+            background: elapsedSeconds > 15 ? '#fffbeb' : '#eff6ff',
+            border: elapsedSeconds > 15 ? '1px solid #fef3c7' : '1px solid #dbeafe',
             borderRadius: 8,
             padding: '0.85rem 1rem',
             display: 'flex',
@@ -341,9 +444,12 @@ export default function AnalyzingProductPage() {
             gap: '0.75rem',
             marginTop: '1.5rem'
           }}>
-            <Info size={18} color="#1a6ef5" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: '0.8rem', color: '#1e40af', lineHeight: 1.4 }}>
-              <strong>This process may take 20–60 seconds depending on image quality and product complexity.</strong> You can leave this page – you'll be notified when the analysis is complete.
+            <Info size={18} color={elapsedSeconds > 15 ? '#d97706' : '#1a6ef5'} style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: '0.8rem', color: elapsedSeconds > 15 ? '#92400e' : '#1e40af', lineHeight: 1.4 }}>
+              <strong>Elapsed Time: {elapsedSeconds}s.</strong>{' '}
+              {elapsedSeconds > 15
+                ? 'Processing high-resolution package imagery. If your cloud backend was sleeping, it takes ~20s to wake up.'
+                : 'Fast vision model and Legal Metrology rule verification in progress.'}
             </span>
           </div>
         </div>

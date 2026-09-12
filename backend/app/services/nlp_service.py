@@ -36,7 +36,8 @@ class NLPService:
     def _extract_with_groq(ocr_text: str, category: str) -> Optional[Dict[str, Any]]:
         try:
             from groq import Groq
-            client = Groq(api_key=settings.GROQ_API_KEY)
+            # Strict 8.0s timeout ensures UI never hangs waiting for NLP
+            client = Groq(api_key=settings.GROQ_API_KEY, timeout=8.0)
 
             system_prompt = (
                 "You are an expert AI parser for Indian Legal Metrology (Packaged Commodities) labeling declarations. "
@@ -54,15 +55,34 @@ class NLPService:
                 "}"
             )
 
-            completion = client.chat.completions.create(
-                model=settings.GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Category: {category}\nOCR Text:\n{ocr_text}"}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.1
-            )
+            candidate_models = [
+                getattr(settings, "GROQ_MODEL", "qwen/qwen3.6-27b"),
+                "qwen/qwen3.6-27b",
+                "openai/gpt-oss-20b",
+                "qwen/qwen3.8-27b"
+            ]
+            candidate_models = list(dict.fromkeys(candidate_models))
+
+            completion = None
+            for model_name in candidate_models:
+                try:
+                    completion = client.chat.completions.create(
+                        model=model_name,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": f"Category: {category}\nOCR Text:\n{ocr_text}"}
+                        ],
+                        response_format={"type": "json_object"},
+                        temperature=0.1
+                    )
+                    if completion and completion.choices and completion.choices[0].message.content:
+                        break
+                except Exception as ex:
+                    print(f"NLP model candidate {model_name} failed: {ex}. Trying next...")
+                    continue
+
+            if not completion:
+                return None
 
             raw_json = completion.choices[0].message.content
             return json.loads(raw_json)

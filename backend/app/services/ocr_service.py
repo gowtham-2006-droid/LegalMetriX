@@ -38,22 +38,38 @@ class OCRService:
                 "fields": scenario.get("fields")
             }
 
-        # 2. State-of-the-art Qwen Vision Model on Groq (with Multi-Surface Grounding)
+        # 2. State-of-the-art Vision Model on Groq (with Multi-Surface Grounding & Fast Fallback)
         if settings.GROQ_API_KEY and image_paths:
             try:
+                import io
                 from PIL import Image as PILImage
                 from groq import Groq
 
-                client = Groq(api_key=settings.GROQ_API_KEY)
-                model_name = getattr(settings, "GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
+                # Strict timeout prevents hanging requests
+                client = Groq(api_key=settings.GROQ_API_KEY, timeout=12.0)
+                
+                candidate_models = [
+                    getattr(settings, "GROQ_VISION_MODEL", "qwen/qwen3.6-27b"),
+                    "qwen/qwen3.6-27b",
+                    "qwen/qwen3.8-27b"
+                ]
+                # Deduplicate while preserving order
+                candidate_models = list(dict.fromkeys(candidate_models))
 
                 images_meta = []
                 for p in image_paths:
-                    p_img = PILImage.open(p)
-                    w, h = p_img.size
-                    with open(p, "rb") as f:
-                        b64_d = base64.b64encode(f.read()).decode("utf-8")
-                    images_meta.append({"width": w, "height": h, "b64": b64_d})
+                    p_img = PILImage.open(p).convert("RGB")
+                    orig_w, orig_h = p_img.size
+
+                    # Downsample & compress to max 1024px and JPEG quality 82
+                    # This reduces base64 payload from 15MB to ~80KB and token usage by ~80%
+                    comp_img = p_img.copy()
+                    comp_img.thumbnail((1024, 1024), PILImage.Resampling.LANCZOS)
+                    buf = io.BytesIO()
+                    comp_img.save(buf, format="JPEG", quality=82, optimize=True)
+                    b64_d = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+                    images_meta.append({"width": orig_w, "height": orig_h, "b64": b64_d})
 
                 num_images = len(images_meta)
                 if num_images > 1:
@@ -118,119 +134,71 @@ class OCRService:
                         "image_url": {"url": f"data:image/jpeg;base64,{meta['b64']}"}
                     })
 
-                resp = client.chat.completions.create(
-                    model=model_name,
-                    max_tokens=850,
-                    messages=[{"role": "user", "content": content_payload}]
-                )
-
-                content = resp.choices[0].message.content.strip()
-                parsed = OCRService._parse_resilient_json(content)
-                raw_lines = parsed.get("lines", [])
-                formatted_lines = []
-                conf_sum = 0.0
-
-                for item in raw_lines:
-                    text = item.get("text", "").strip()
-                    if not text:
+                resp = None
+                engine_used = "vision-ai"
+                for model_candidate in candidate_models:
+                    try:
+                        resp = client.chat.completions.create(
+                            model=model_candidate,
+                            max_tokens=850,
+                            messages=[{"role": "user", "content": content_payload}]
+                        )
+                        if resp and resp.choices and resp.choices[0].message.content:
+                            engine_used = model_candidate
+                            break
+                    except Exception as ex:
+                        print(f"Vision model candidate {model_candidate} failed: {ex}. Checking fallback candidate...")
                         continue
-                    conf = float(item.get("confidence", 0.9))
-                    img_idx = int(item.get("image_index", 0))
-                    img_idx = max(0, min(img_idx, len(images_meta) - 1))
-                    w_img = images_meta[img_idx]["width"]
-                    h_img = images_meta[img_idx]["height"]
 
-                    box_2d = item.get("box_2d")
-                    if box_2d and len(box_2d) == 4:
-                        ymin, xmin, ymax, xmax = [float(v) for v in box_2d]
-                        x1 = int(xmin * w_img / 1000)
-                        y1 = int(ymin * h_img / 1000)
-                        x2 = int(xmax * w_img / 1000)
-                        y2 = int(ymax * h_img / 1000)
-                        x2 = max(x2, x1 + 15)
-                        y2 = max(y2, y1 + 15)
-                        bbox = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
-                    else:
-                        bbox = None
+                if resp and resp.choices and resp.choices[0].message.content:
+                    content = resp.choices[0].message.content.strip()
+                    parsed = OCRService._parse_resilient_json(content)
+                    raw_lines = parsed.get("lines", [])
+                    formatted_lines = []
+                    conf_sum = 0.0
 
-                    formatted_lines.append({
-                        "text": text,
-                        "confidence": round(conf, 3),
-                        "bbox": bbox,
-                        "image_index": img_idx,
-                        "field": item.get("field", "general")
-                    })
-                    conf_sum += conf
+                    for item in raw_lines:
+                        text = item.get("text", "").strip()
+                        if not text:
+                            continue
+                        conf = float(item.get("confidence", 0.9))
+                        img_idx = int(item.get("image_index", 0))
+                        img_idx = max(0, min(img_idx, len(images_meta) - 1))
+                        w_img = images_meta[img_idx]["width"]
+                        h_img = images_meta[img_idx]["height"]
 
-                # Return vision result directly (even if 0 lines when image has no text)
-                return {
-                    "lines": formatted_lines,
-                    "overall_confidence": round(conf_sum / max(len(formatted_lines), 1), 2) if formatted_lines else 0.0,
-                    "engine": "qwen3.8-27b-vision",
-                    "fields": parsed.get("fields") or {},
-                    "product_name": parsed.get("product_name")
-                }
-            except Exception as e:
-                print(f"Qwen vision inference failed, proceeding to fallback: {e}")
+                        box_2d = item.get("box_2d")
+                        if box_2d and len(box_2d) == 4:
+                            ymin, xmin, ymax, xmax = [float(v) for v in box_2d]
+                            x1 = int(xmin * w_img / 1000)
+                            y1 = int(ymin * h_img / 1000)
+                            x2 = int(xmax * w_img / 1000)
+                            y2 = int(ymax * h_img / 1000)
+                            x2 = max(x2, x1 + 15)
+                            y2 = max(y2, y1 + 15)
+                            bbox = [[x1, y1], [x2, y1], [x2, y2], [x1, y2]]
+                        else:
+                            bbox = None
 
-        # 3. Fallback: Try EasyOCR on primary image
-        if primary_path and os.path.exists(primary_path):
-            try:
-                import easyocr
-                reader = easyocr.Reader(['en'], gpu=False)
-                results = reader.readtext(primary_path)
-                lines = []
-                conf_sum = 0.0
-                for bbox, text, conf in results:
-                    box = [[int(pt[0]), int(pt[1])] for pt in bbox]
-                    lines.append({
-                        "text": text.strip(),
-                        "confidence": round(float(conf), 3),
-                        "bbox": box,
-                        "image_index": 0
-                    })
-                    conf_sum += float(conf)
-
-                if lines:
-                    return {
-                        "lines": lines,
-                        "overall_confidence": round(conf_sum / len(lines), 2),
-                        "engine": "easyocr"
-                    }
-            except Exception:
-                pass
-
-            # 4. Fallback: Try PyTesseract on primary image
-            try:
-                import pytesseract
-                from PIL import Image as PILImage
-                img = PILImage.open(primary_path)
-                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-                lines = []
-                n_boxes = len(data['text'])
-                conf_sum = 0.0
-                valid_count = 0
-                for i in range(n_boxes):
-                    text = data['text'][i].strip()
-                    conf = float(data['conf'][i])
-                    if text and conf > 0:
-                        x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
-                        lines.append({
+                        formatted_lines.append({
                             "text": text,
-                            "confidence": round(conf / 100.0, 3),
-                            "bbox": [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
-                            "image_index": 0
+                            "confidence": round(conf, 3),
+                            "bbox": bbox,
+                            "image_index": img_idx,
+                            "field": item.get("field", "general")
                         })
-                        conf_sum += (conf / 100.0)
-                        valid_count += 1
-                if lines:
+                        conf_sum += conf
+
+                    # Return vision result directly (even if 0 lines when image has no text)
                     return {
-                        "lines": lines,
-                        "overall_confidence": round(conf_sum / max(valid_count, 1), 2),
-                        "engine": "pytesseract"
+                        "lines": formatted_lines,
+                        "overall_confidence": round(conf_sum / max(len(formatted_lines), 1), 2) if formatted_lines else 0.0,
+                        "engine": engine_used,
+                        "fields": parsed.get("fields") or {},
+                        "product_name": parsed.get("product_name")
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Vision inference pipeline encountered error, proceeding to fast fallback: {e}")
 
         # 5. Fallback: Only use demo scenario mock if image is actually a demo scenario file
         if scenario_hint and scenario_hint in DEMO_SCENARIOS and is_demo_file:
