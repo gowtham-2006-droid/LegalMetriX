@@ -34,15 +34,18 @@ class ComputerVisionService:
         denoised = cv2.bilateralFilter(gray, 9, 75, 75)
 
         # 3. CLAHE (Contrast Limited Adaptive Histogram Equalization)
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
         contrast_enhanced = clahe.apply(denoised)
 
-        # 4. Estimate skew angle
-        angle = ComputerVisionService._detect_skew_angle(contrast_enhanced)
+        # 4. Perimeter & Crimp Edge Band Enhancement (for dot-matrix CIJ inkjet codes on borders/flaps)
+        perimeter_enhanced = ComputerVisionService._enhance_perimeter_bands(contrast_enhanced)
+
+        # 5. Estimate skew angle
+        angle = ComputerVisionService._detect_skew_angle(perimeter_enhanced)
         if abs(angle) > 0.5 and abs(angle) < 45.0:
-            rotated = ComputerVisionService._rotate_image(contrast_enhanced, angle)
+            rotated = ComputerVisionService._rotate_image(perimeter_enhanced, angle)
         else:
-            rotated = contrast_enhanced
+            rotated = perimeter_enhanced
 
         # Save processed output image
         base_name = os.path.splitext(os.path.basename(image_path))[0]
@@ -55,8 +58,35 @@ class ComputerVisionService:
             "original_width": w,
             "original_height": h,
             "skew_angle_corrected": float(angle),
-            "enhancements": ["bilateral_denoise", "clahe_contrast", "deskew"]
+            "enhancements": ["bilateral_denoise", "clahe_contrast", "perimeter_crimp_enhance", "deskew"]
         }
+
+    @staticmethod
+    def _enhance_perimeter_bands(gray_img: np.ndarray) -> np.ndarray:
+        """
+        Enhances contrast and sharpness along the top/bottom/side perimeter crimps and flaps
+        where dynamic Continuous Inkjet (CIJ) or Laser batch codes and prices are stamped.
+        """
+        try:
+            h, w = gray_img.shape[:2]
+            result = gray_img.copy()
+
+            top_h = max(10, int(h * 0.16))
+            bot_h = min(h - 10, int(h * 0.84))
+            left_w = max(10, int(w * 0.14))
+            right_w = min(w - 10, int(w * 0.86))
+
+            # Apply unsharp masking to boost low-contrast dot-matrix dots
+            gaussian = cv2.GaussianBlur(gray_img, (0, 0), 2.0)
+            unsharp = cv2.addWeighted(gray_img, 1.5, gaussian, -0.5, 0)
+
+            result[:top_h, :] = unsharp[:top_h, :]
+            result[bot_h:, :] = unsharp[bot_h:, :]
+            result[:, :left_w] = unsharp[:, :left_w]
+            result[:, right_w:] = unsharp[:, right_w]
+            return result
+        except Exception:
+            return gray_img
 
     @staticmethod
     def _detect_skew_angle(gray_img) -> float:

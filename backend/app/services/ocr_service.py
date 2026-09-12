@@ -76,12 +76,13 @@ class OCRService:
                     prompt = (
                         "You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
                         f"Carefully inspect all {num_images} provided images of this product (Image 1 is Front Panel, Image 2 is Back/Side Declarations Panel).\n\n"
-                        "CRITICAL GROUNDING RULES:\n"
+                        "CRITICAL GROUNDING & PERIMETER SCANNING RULES:\n"
                         "1. Detect ONLY text declarations that are CLEARLY and PHYSICALLY printed on the images.\n"
                         "2. If the image has NO text, NO packaging information, or is blank/unrelated, return empty 'lines': [] and null for all fields.\n"
                         "3. DO NOT guess, assume, or invent any product name, MRP, net quantity, dates, or manufacturer.\n"
-                        "4. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
-                        "5. For each text detected, provide its precise 'image_index' (0 or 1) and 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000).\n\n"
+                        "4. PERIMETER & CRIMP EDGE MRP/DATE SWEEP: On flexible packaging/wrappers/pouches, dynamic batch coding (MRP, Pkd date, Batch No) is frequently stamped along the serrated crimps, seal flaps, or perimeter edges rather than inside the pre-printed artwork box. If the price or date is not inside the pre-printed label box, inspect the entire perimeter, crimped heat-seals, and margins for inkjet/laser prices (e.g. 'Rs. 50', '₹ 20.00', '43/-', 'USP: Rs...', or standalone numbers followed by 'incl. of all taxes'). If found anywhere on the package, include it in 'lines' with 'field': 'mrp' and map it to fields.mrp.\n"
+                        "5. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
+                        "6. For each text detected, provide its precise 'image_index' (0 or 1) and 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000).\n\n"
                         "Return pure valid JSON:\n"
                         "{\n"
                         '  "product_name": null,\n'
@@ -103,12 +104,13 @@ class OCRService:
                     prompt = (
                         "You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
                         "Carefully inspect this product package image.\n\n"
-                        "CRITICAL GROUNDING RULES:\n"
+                        "CRITICAL GROUNDING & PERIMETER SCANNING RULES:\n"
                         "1. Detect ONLY text declarations that are CLEARLY and PHYSICALLY printed on the image.\n"
                         "2. If the image has NO text, NO packaging information, or is blank/unrelated, return empty 'lines': [] and null for all fields.\n"
                         "3. DO NOT guess, assume, or invent any product name, MRP, net quantity, dates, or manufacturer.\n"
-                        "4. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
-                        "5. For each text detected, provide its precise normalized 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000) and 'image_index': 0.\n\n"
+                        "4. PERIMETER & CRIMP EDGE MRP/DATE SWEEP: On flexible packaging/wrappers/pouches, dynamic batch coding (MRP, Pkd date, Batch No) is frequently stamped along the serrated crimps, seal flaps, or perimeter edges rather than inside the pre-printed artwork box. If the price or date is not inside the pre-printed label box, inspect the entire perimeter, crimped heat-seals, and margins for inkjet/laser prices (e.g. 'Rs. 50', '₹ 20.00', '43/-', 'USP: Rs...', or standalone numbers followed by 'incl. of all taxes'). If found anywhere on the package, include it in 'lines' with 'field': 'mrp' and map it to fields.mrp.\n"
+                        "5. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
+                        "6. For each text detected, provide its precise normalized 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000) and 'image_index': 0.\n\n"
                         "Return pure valid JSON:\n"
                         "{\n"
                         '  "product_name": null,\n'
@@ -324,8 +326,11 @@ class OCRService:
 
                     # Label tag badge with field prefix and confidence percentage
                     field_prefix = item.get("field", "")
+                    is_edge_tag = " - Crimp/Edge" if item.get("is_edge") else ""
                     if field_prefix and field_prefix not in ("general", "other"):
-                        tag_prefix = f"[{field_prefix.replace('_', ' ').title()}] "
+                        tag_prefix = f"[{field_prefix.replace('_', ' ').title()}{is_edge_tag}] "
+                    elif is_edge_tag:
+                        tag_prefix = f"[{is_edge_tag.strip(' -')}] "
                     else:
                         tag_prefix = ""
 

@@ -156,11 +156,14 @@ class NLPService:
             "source_bbox": None
         }
 
-        # 3. MRP
+        # 3. MRP (Direct Label, Detached Perimeter/Crimp Stamping, or Pointer Linking)
         mrp_pattern = re.compile(r'(?:MRP|M\.R\.P|MAX\s*RETAIL\s*PRICE)?[:.\s-]*(?:₹|Rs\.?|INR)?\s*([0-9]+(?:\.[0-9]{2})?)', re.IGNORECASE)
         mrp_match = None
+
+        # Pass 1: Line containing explicit MRP label and amount
         for line in ocr_lines:
-            if "MRP" in line["text"].upper() or "RS." in line["text"].upper() or "₹" in line["text"]:
+            text_u = line["text"].upper()
+            if "MRP" in text_u or "M.R.P" in text_u or "MAX RETAIL" in text_u:
                 match = mrp_pattern.search(line["text"])
                 if match and match.group(1):
                     val = float(match.group(1))
@@ -172,6 +175,39 @@ class NLPService:
                         "source_bbox": line["bbox"]
                     }
                     break
+
+        # Pass 2: Disjoint Perimeter / Crimp / Edge Price Linking
+        # Resolves cases where label has "M.R.P. Rs." with empty box while actual CIJ price is stamped on edge/flap
+        if not mrp_match:
+            standalone_price_pattern = re.compile(
+                r'(?:₹|Rs\.?|INR)\s*([0-9]+(?:\.[0-9]{2})?)|([0-9]+(?:\.[0-9]{2})?)\s*(?:/-|\(?(?:INCL|TAXES|ALL TAXES)\)?|\bRS\b)', 
+                re.IGNORECASE
+            )
+            for line in ocr_lines:
+                text_clean = line["text"].strip()
+                match = standalone_price_pattern.search(text_clean)
+                num_str = None
+                if match:
+                    num_str = match.group(1) or match.group(2)
+                elif line.get("field") == "mrp" or line.get("is_edge", False):
+                    num_match = re.search(r'([0-9]+(?:\.[0-9]{2})?)', text_clean)
+                    if num_match:
+                        num_str = num_match.group(1)
+
+                if num_str:
+                    val = float(num_str)
+                    # Exclude batch years (e.g. 2025) or pure grams
+                    if 0.5 <= val <= 99999.0 and not (1990 <= val <= 2035 and "." not in num_str):
+                        is_crimp = line.get("is_edge", False) or any(k in text_clean.lower() for k in ["crimp", "seal", "edge", "flap", "border"])
+                        label_tag = " [Edge/Crimp Stamping]" if is_crimp else ""
+                        mrp_match = {
+                            "value": f"₹ {val:.2f}{label_tag}",
+                            "normalized": {"amount": val, "currency": "INR"},
+                            "confidence": round(line["confidence"], 2),
+                            "source_text": f"{text_clean}{label_tag}",
+                            "source_bbox": line["bbox"]
+                        }
+                        break
 
         results["mrp"] = mrp_match or {
             "value": None,
@@ -222,15 +258,26 @@ class NLPService:
             "source_bbox": None
         }
 
-        # 6. Dates
-        date_pattern = re.compile(r'(?:MFG|PKD|PACKED|MANUFACTURED)?[:.\s-]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{4}|\w{3}[/-]\d{4})', re.IGNORECASE)
+        # 6. Dates (Manufacture / Packaging / Expiry / Best Before Period)
+        date_pattern = re.compile(r'(?:MFG|PKD|PACKED|MANUFACTURED|USE BY|EXP|BEFORE)?[:.\s-]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{1,2}[/-]\d{4}|\w{3}[/-]\d{4})', re.IGNORECASE)
+        bb_pattern = re.compile(r'(BEST\s*BEFORE\s*\d+\s*(?:MONTHS|DAYS|YEARS)(?:\s*FROM\s*[A-Z]+)?)', re.IGNORECASE)
         date_match = None
         for line in ocr_lines:
-            if any(k in line["text"].upper() for k in ["MFG", "PKD", "DATE", "BEST BEFORE"]):
+            text_u = line["text"].upper()
+            if any(k in text_u for k in ["MFG", "PKD", "DATE", "BEST BEFORE", "EXPIRY", "BATCH"]):
                 match = date_pattern.search(line["text"])
                 if match:
                     date_match = {
                         "value": match.group(1),
+                        "confidence": round(line["confidence"], 2),
+                        "source_text": line["text"],
+                        "source_bbox": line["bbox"]
+                    }
+                    break
+                bb_match = bb_pattern.search(line["text"])
+                if bb_match:
+                    date_match = {
+                        "value": bb_match.group(1).title(),
                         "confidence": round(line["confidence"], 2),
                         "source_text": line["text"],
                         "source_bbox": line["bbox"]
