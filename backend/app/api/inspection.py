@@ -261,7 +261,7 @@ def analyze_inspection(
     # Step 3: AI / NLP Field Extraction & Normalization
     # Check if scenario has pre-annotated fields
     if scenario_hint and scenario_hint in DEMO_SCENARIOS:
-        extracted = DEMO_SCENARIOS[scenario_hint]["fields"]
+        extracted = NLPService.format_vision_fields(DEMO_SCENARIOS[scenario_hint]["fields"], ocr_data["lines"])
     elif ocr_data.get("fields"):
         extracted = NLPService.format_vision_fields(ocr_data["fields"], ocr_data["lines"])
     else:

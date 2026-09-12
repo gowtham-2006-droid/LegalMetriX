@@ -71,8 +71,11 @@ class NLPService:
             return None
 
     @staticmethod
-    def _extract_with_regex(ocr_lines: List[Dict[str, Any]], combined_text: str) -> Dict[str, Any]:
+    def _extract_with_regex(ocr_lines: List[Dict[str, Any]], combined_text: str = "") -> Dict[str, Any]:
         results = {}
+
+        if not combined_text and ocr_lines:
+            combined_text = "\n".join([line.get("text", "") for line in ocr_lines if isinstance(line, dict) and line.get("text")])
 
         if not ocr_lines or not combined_text.strip():
             for f in [
