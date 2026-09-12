@@ -138,16 +138,22 @@ class OCRService:
                 engine_used = "vision-ai"
                 for model_candidate in candidate_models:
                     try:
-                        resp = client.chat.completions.create(
-                            model=model_candidate,
-                            max_tokens=850,
-                            messages=[{"role": "user", "content": content_payload}]
-                        )
+                        create_kwargs = {
+                            "model": model_candidate,
+                            "max_tokens": 550,
+                            "messages": [{"role": "user", "content": content_payload}]
+                        }
+                        # Disable thinking overhead on Qwen so 100% of token budget goes directly to JSON text detections
+                        if "qwen" in model_candidate.lower():
+                            create_kwargs["reasoning_effort"] = "none"
+
+                        resp = client.chat.completions.create(**create_kwargs)
                         if resp and resp.choices and resp.choices[0].message.content:
                             engine_used = model_candidate
                             break
                     except Exception as ex:
-                        print(f"Vision model candidate {model_candidate} failed: {ex}. Checking fallback candidate...")
+                        safe_ex = str(ex).encode('ascii', errors='replace').decode('ascii')
+                        print(f"Vision model candidate {model_candidate} failed: {safe_ex}. Checking fallback candidate...")
                         continue
 
                 if resp and resp.choices and resp.choices[0].message.content:
@@ -353,7 +359,11 @@ class OCRService:
 
     @staticmethod
     def _parse_resilient_json(s: str) -> dict:
+        import re
         s = s.strip()
+        # Strip any internal reasoning or think blocks from reasoning models
+        s = re.sub(r'<think>.*?</think>', '', s, flags=re.DOTALL).strip()
+
         if "```json" in s:
             s = s.split("```json")[1].split("```")[0].strip()
         elif "```" in s:

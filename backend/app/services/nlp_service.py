@@ -56,29 +56,34 @@ class NLPService:
             )
 
             candidate_models = [
-                getattr(settings, "GROQ_MODEL", "qwen/qwen3.6-27b"),
-                "qwen/qwen3.6-27b",
                 "openai/gpt-oss-20b",
-                "qwen/qwen3.8-27b"
+                getattr(settings, "GROQ_MODEL", "qwen/qwen3.6-27b"),
+                "qwen/qwen3.6-27b"
             ]
             candidate_models = list(dict.fromkeys(candidate_models))
 
             completion = None
             for model_name in candidate_models:
                 try:
-                    completion = client.chat.completions.create(
-                        model=model_name,
-                        messages=[
+                    kwargs = {
+                        "model": model_name,
+                        "max_tokens": 450,
+                        "messages": [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": f"Category: {category}\nOCR Text:\n{ocr_text}"}
                         ],
-                        response_format={"type": "json_object"},
-                        temperature=0.1
-                    )
+                        "response_format": {"type": "json_object"},
+                        "temperature": 0.1
+                    }
+                    if "qwen" in model_name.lower():
+                        kwargs["reasoning_effort"] = "none"
+
+                    completion = client.chat.completions.create(**kwargs)
                     if completion and completion.choices and completion.choices[0].message.content:
                         break
                 except Exception as ex:
-                    print(f"NLP model candidate {model_name} failed: {ex}. Trying next...")
+                    safe_ex = str(ex).encode('ascii', errors='replace').decode('ascii')
+                    print(f"NLP model candidate {model_name} failed: {safe_ex}. Trying next...")
                     continue
 
             if not completion:
