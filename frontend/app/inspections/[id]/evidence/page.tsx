@@ -55,6 +55,8 @@ function VisualEvidenceContent() {
   const [selectedElement, setSelectedElement] = useState<string | null>(initialSelectedField);
   const [selectedView, setSelectedView] = useState('Front View');
 
+  const [ocrLines, setOcrLines] = useState<any[]>([]);
+
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -70,14 +72,19 @@ function VisualEvidenceContent() {
           setInspection(inspData);
         }
 
-        // 2. Fetch Extracted Data & Compliance
-        const [fieldsRes, compRes] = await Promise.all([
+        // 2. Fetch Extracted Data, Compliance & OCR Lines
+        const [fieldsRes, compRes, ocrRes] = await Promise.all([
           fetch(`/api/inspection/${id}/extracted-data`, { headers }),
-          fetch(`/api/inspection/${id}/compliance`, { headers })
+          fetch(`/api/inspection/${id}/compliance`, { headers }),
+          fetch(`/api/inspection/${id}/ocr`, { headers })
         ]);
 
         const fieldsData = fieldsRes.ok ? await fieldsRes.json() : { fields: [] };
         const compData = compRes.ok ? await compRes.json() : { results: [] };
+        if (ocrRes.ok) {
+          const ocrJson = await ocrRes.json();
+          setOcrLines(ocrJson.lines || []);
+        }
 
         const fieldsMap: Record<string, any> = {};
         (fieldsData.fields || []).forEach((f: any) => {
@@ -97,12 +104,16 @@ function VisualEvidenceContent() {
 
         const elements: DetectedElement[] = (compData.results || []).map((r: any) => {
           const f = fieldsMap[r.field];
+          const rawVal = r.detected_value || (f && f.value);
+          const rawStr = String(rawVal || '').toLowerCase();
+          const isAbsent = !rawVal || rawStr.includes('not detected') || rawStr.includes('none') || (f && !f.value);
+
           const st = r.status.toLowerCase();
           const statusVal: 'pass' | 'fail' | 'warning' =
-            st === 'pass' ? 'pass' : st === 'fail' ? 'fail' : 'warning';
+            isAbsent ? 'fail' : (st === 'pass' ? 'pass' : st === 'fail' ? 'fail' : 'warning');
 
-          const conf = f && f.confidence ? `${Math.round(f.confidence * 100)}%` : '—';
-          const text = r.detected_value || (f && f.value) || 'Not detected';
+          const conf = isAbsent ? '0%' : (f && f.confidence ? `${Math.round(f.confidence * 100)}%` : '—');
+          const text = isAbsent ? 'Not detected on packaging' : rawVal;
 
           return {
             element: r.field.replace(/_/g, ' '),
@@ -284,13 +295,16 @@ function VisualEvidenceContent() {
           }}>
             {(() => {
               const activePanel = (inspection?.panels && inspection.panels[activePanelIndex]) || null;
-              const activeSrc = activePanel
+              const rawSrc = activePanel
                 ? (evidenceTab === 'ocr'
                     ? (activePanel.ocr_image_url || activePanel.image_url)
                     : activePanel.image_url)
                 : (evidenceTab === 'ocr'
                     ? (inspection?.ocr_image_url || inspection?.image_url)
                     : inspection?.image_url);
+
+              const imgTimestamp = inspection?.created_at ? new Date(inspection.created_at).getTime() : Date.now();
+              const activeSrc = rawSrc ? `${rawSrc}?t=${imgTimestamp}` : null;
 
               if (activeSrc) {
                 return (
@@ -307,6 +321,35 @@ function VisualEvidenceContent() {
                         borderRadius: 6
                       }}
                     />
+
+                    {/* Overlay if OCR View has 0 detected lines */}
+                    {evidenceTab === 'ocr' && ocrLines.length === 0 && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
+                        background: 'rgba(15, 23, 42, 0.92)',
+                        backdropFilter: 'blur(8px)',
+                        border: '1px solid rgba(245, 158, 11, 0.5)',
+                        padding: '1rem 1.25rem',
+                        borderRadius: 10,
+                        color: '#f8fafc',
+                        textAlign: 'center',
+                        maxWidth: '85%',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                        zIndex: 10
+                      }}>
+                        <div style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>🔍</div>
+                        <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fef3c7' }}>
+                          No Text Declarations Detected
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.25rem', lineHeight: 1.4 }}>
+                          The AI OCR vision engine scanned this package surface and found zero legible printed text or statutory labels.
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{
                       position: 'absolute',
                       bottom: 12,
@@ -320,7 +363,7 @@ function VisualEvidenceContent() {
                       borderRadius: 4
                     }}>
                       {activePanel ? `${activePanel.label}: ` : ''}
-                      {evidenceTab === 'ocr' ? '🔍 OCR Annotated Surface' : '📷 Original Surface'}
+                      {evidenceTab === 'ocr' ? (ocrLines.length > 0 ? `🔍 OCR Annotated Surface (${ocrLines.length} Bounding Boxes)` : '🔍 OCR Annotated Surface (0 Detections)') : '📷 Original Surface'}
                     </div>
                   </div>
                 );
@@ -366,34 +409,54 @@ function VisualEvidenceContent() {
             </button>
           </div>
 
-          {/* Carousel Thumbnails */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginTop: '1rem' }}>
-            {[
-              { label: 'Front View' },
-              { label: 'Back View' },
-              { label: 'Side View (Left)' },
-              { label: 'Side View (Right)' }
-            ].map((t) => (
-              <div
-                key={t.label}
-                onClick={() => setSelectedView(t.label)}
-                style={{
-                  border: selectedView === t.label ? '2px solid #1a6ef5' : '1px solid #e2e8f0',
-                  borderRadius: 6,
-                  padding: '0.5rem',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  background: '#ffffff'
-                }}
-              >
-                <div style={{ height: 45, background: '#fef08a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.65rem', color: '#854d0e', fontWeight: 700, marginBottom: 4 }}>
-                  {inspection?.product_name ? inspection.product_name.slice(0, 10) : 'Sample'}
+          {/* Real Package Panel Surface Thumbnails */}
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(2, (inspection?.panels?.length || 2))}, 1fr)`, gap: '0.75rem', marginTop: '1rem' }}>
+            {inspection?.panels && inspection.panels.length > 0 ? (
+              inspection.panels.map((p: any, idx: number) => (
+                <div
+                  key={p.id || idx}
+                  onClick={() => setActivePanelIndex(idx)}
+                  style={{
+                    border: activePanelIndex === idx ? '2px solid #1a6ef5' : '1px solid #e2e8f0',
+                    borderRadius: 6,
+                    padding: '0.4rem',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    background: '#ffffff'
+                  }}
+                >
+                  <div style={{ height: 48, background: '#0f172a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 4 }}>
+                    <img src={p.image_url} alt={p.label} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                  </div>
+                  <span style={{ fontSize: '0.68rem', color: activePanelIndex === idx ? '#1a6ef5' : '#64748b', fontWeight: 700 }}>
+                    {p.label}
+                  </span>
                 </div>
-                <span style={{ fontSize: '0.68rem', color: selectedView === t.label ? '#1a6ef5' : '#64748b', fontWeight: 600 }}>
-                  {t.label}
-                </span>
-              </div>
-            ))}
+              ))
+            ) : (
+              [
+                { label: 'Front Face', url: inspection?.image_url },
+                { label: 'OCR Annotation', url: inspection?.ocr_image_url || inspection?.image_url }
+              ].map((t, idx) => (
+                <div
+                  key={idx}
+                  onClick={() => setEvidenceTab(idx === 0 ? 'original' : 'ocr')}
+                  style={{
+                    border: (idx === 0 && evidenceTab === 'original') || (idx === 1 && evidenceTab === 'ocr') ? '2px solid #1a6ef5' : '1px solid #e2e8f0',
+                    borderRadius: 6,
+                    padding: '0.4rem',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    background: '#ffffff'
+                  }}
+                >
+                  <div style={{ height: 48, background: '#0f172a', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 4 }}>
+                    {t.url ? <img src={t.url} alt={t.label} style={{ width: '100%', height: '100%', objectFit: 'contain' }} /> : null}
+                  </div>
+                  <span style={{ fontSize: '0.68rem', color: '#64748b', fontWeight: 600 }}>{t.label}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

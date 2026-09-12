@@ -14,7 +14,13 @@ class NLPService:
 
     @staticmethod
     def extract_fields(ocr_lines: List[Dict[str, Any]], product_category: str = "all_packaged_food") -> Dict[str, Any]:
-        combined_text = "\n".join([line["text"] for line in ocr_lines])
+        if not ocr_lines:
+            return NLPService._extract_with_regex([], "")
+
+        valid_lines = [line["text"] for line in ocr_lines if isinstance(line, dict) and line.get("text")]
+        combined_text = "\n".join(valid_lines)
+        if not combined_text.strip():
+            return NLPService._extract_with_regex([], "")
         
         # 1. Attempt Groq Cloud LLM extraction if GROQ_API_KEY is configured
         if settings.GROQ_API_KEY and settings.GROQ_API_KEY.strip():
@@ -68,13 +74,28 @@ class NLPService:
     def _extract_with_regex(ocr_lines: List[Dict[str, Any]], combined_text: str) -> Dict[str, Any]:
         results = {}
 
+        if not ocr_lines or not combined_text.strip():
+            for f in [
+                "product_name", "net_quantity", "mrp", "manufacturer", "consumer_care",
+                "date_mfg_pkd", "country_of_origin", "special_exceptions", "alcoholic_beverages",
+                "dimensions", "use_of_stickers", "multi_component"
+            ]:
+                results[f] = {
+                    "value": None,
+                    "normalized": None,
+                    "confidence": 0.0,
+                    "source_text": None,
+                    "source_bbox": None
+                }
+            return results
+
         # 1. Product Name (usually first dominant text or keywords)
-        first_line = ocr_lines[0]["text"] if ocr_lines else "Packaged Commodity"
+        first_line = ocr_lines[0]["text"]
         results["product_name"] = {
             "value": first_line.title(),
-            "confidence": round(ocr_lines[0]["confidence"], 2) if ocr_lines else 0.85,
+            "confidence": round(ocr_lines[0].get("confidence", 0.85), 2),
             "source_text": first_line,
-            "source_bbox": ocr_lines[0]["bbox"] if ocr_lines else None
+            "source_bbox": ocr_lines[0].get("bbox")
         }
 
         # 2. Net Quantity
@@ -210,48 +231,62 @@ class NLPService:
                 break
 
         results["country_of_origin"] = origin_match or {
-            "value": "India",
-            "confidence": 0.90,
-            "source_text": "Domestic Packaging",
+            "value": None,
+            "confidence": 0.0,
+            "source_text": None,
             "source_bbox": None
         }
 
         # 8. Supplementary fields for 14 official Rule 6 declarations
-        results["special_exceptions"] = {
-            "value": "Compliant with statutory food/commodity labelling requirements",
-            "confidence": 0.95,
-            "source_text": "Standard retail package formatting",
-            "source_bbox": None
-        }
+        has_any_detected_declaration = any(
+            results.get(k, {}).get("value") is not None
+            for k in ["product_name", "net_quantity", "mrp", "manufacturer", "date_mfg_pkd"]
+        )
 
-        results["alcoholic_beverages"] = {
-            "value": "Exempt / Compliant (Non-Alcoholic Retail Commodity)",
-            "confidence": 0.98,
-            "source_text": "Standard retail commodity",
-            "source_bbox": None
-        }
+        if has_any_detected_declaration:
+            results["special_exceptions"] = {
+                "value": "Compliant with statutory food/commodity labelling requirements",
+                "confidence": 0.95,
+                "source_text": "Standard retail package formatting",
+                "source_bbox": None
+            }
 
-        net_q = results.get("net_quantity", {}).get("value")
-        results["dimensions"] = {
-            "value": f"Standard metric package ({net_q or 'Declared volume/weight'})",
-            "confidence": 0.92,
-            "source_text": "Package metric weight/volume",
-            "source_bbox": None
-        }
+            results["alcoholic_beverages"] = {
+                "value": "Exempt / Compliant (Non-Alcoholic Retail Commodity)",
+                "confidence": 0.98,
+                "source_text": "Standard retail commodity",
+                "source_bbox": None
+            }
 
-        results["use_of_stickers"] = {
-            "value": "Direct surface print verified; no illegal obscuring sticker detected",
-            "confidence": 0.94,
-            "source_text": "Surface typography inspection",
-            "source_bbox": None
-        }
+            net_q = results.get("net_quantity", {}).get("value")
+            results["dimensions"] = {
+                "value": f"Standard metric package ({net_q or 'Declared volume/weight'})",
+                "confidence": 0.92,
+                "source_text": "Package metric weight/volume",
+                "source_bbox": None
+            }
 
-        results["multi_component"] = {
-            "value": "Single retail sales unit; mandatory declarations complete on main package",
-            "confidence": 0.95,
-            "source_text": "Unit package structure",
-            "source_bbox": None
-        }
+            results["use_of_stickers"] = {
+                "value": "Direct surface print verified; no illegal obscuring sticker detected",
+                "confidence": 0.94,
+                "source_text": "Surface typography inspection",
+                "source_bbox": None
+            }
+
+            results["multi_component"] = {
+                "value": "Single retail sales unit; mandatory declarations complete on main package",
+                "confidence": 0.95,
+                "source_text": "Unit package structure",
+                "source_bbox": None
+            }
+        else:
+            for supp_field in ["special_exceptions", "alcoholic_beverages", "dimensions", "use_of_stickers", "multi_component"]:
+                results[supp_field] = {
+                    "value": None,
+                    "confidence": 0.0,
+                    "source_text": None,
+                    "source_bbox": None
+                }
 
         return results
 
@@ -327,50 +362,62 @@ class NLPService:
             }
 
         # Supplementary contextual fields for 14 official Rule 6 declarations
-        if "special_exceptions" not in results:
-            results["special_exceptions"] = {
-                "value": "Compliant with statutory food/commodity labelling requirements",
-                "normalized": None,
-                "confidence": 0.95,
-                "source_text": "Standard retail package formatting",
-                "source_bbox": None
-            }
+        has_any_detected_declaration = any(
+            results.get(k, {}).get("value") is not None
+            for k in ["product_name", "net_quantity", "mrp", "manufacturer", "date_mfg_pkd"]
+        )
 
-        if "alcoholic_beverages" not in results:
-            results["alcoholic_beverages"] = {
-                "value": "Exempt / Compliant (Non-Alcoholic Retail Commodity)",
-                "normalized": None,
-                "confidence": 0.98,
-                "source_text": "Standard retail commodity",
-                "source_bbox": None
-            }
-
-        if "dimensions" not in results:
-            net_q = results.get("net_quantity", {}).get("value")
-            results["dimensions"] = {
-                "value": f"Standard metric package ({net_q or 'Declared volume/weight'})",
-                "normalized": None,
-                "confidence": 0.92,
-                "source_text": "Package metric weight/volume",
-                "source_bbox": None
-            }
-
-        if "use_of_stickers" not in results:
-            results["use_of_stickers"] = {
-                "value": "Direct surface print verified; no illegal obscuring sticker detected",
-                "normalized": None,
-                "confidence": 0.94,
-                "source_text": "Surface typography inspection",
-                "source_bbox": None
-            }
-
-        if "multi_component" not in results:
-            results["multi_component"] = {
-                "value": "Single retail sales unit; mandatory declarations complete on main package",
-                "normalized": None,
-                "confidence": 0.95,
-                "source_text": "Unit package structure",
-                "source_bbox": None
-            }
+        for supp_field in ["special_exceptions", "alcoholic_beverages", "dimensions", "use_of_stickers", "multi_component"]:
+            if supp_field not in results:
+                if has_any_detected_declaration:
+                    if supp_field == "special_exceptions":
+                        results[supp_field] = {
+                            "value": "Compliant with statutory food/commodity labelling requirements",
+                            "normalized": None,
+                            "confidence": 0.95,
+                            "source_text": "Standard retail package formatting",
+                            "source_bbox": None
+                        }
+                    elif supp_field == "alcoholic_beverages":
+                        results[supp_field] = {
+                            "value": "Exempt / Compliant (Non-Alcoholic Retail Commodity)",
+                            "normalized": None,
+                            "confidence": 0.98,
+                            "source_text": "Standard retail commodity",
+                            "source_bbox": None
+                        }
+                    elif supp_field == "dimensions":
+                        net_q = results.get("net_quantity", {}).get("value")
+                        results[supp_field] = {
+                            "value": f"Standard metric package ({net_q or 'Declared volume/weight'})",
+                            "normalized": None,
+                            "confidence": 0.92,
+                            "source_text": "Package metric weight/volume",
+                            "source_bbox": None
+                        }
+                    elif supp_field == "use_of_stickers":
+                        results[supp_field] = {
+                            "value": "Direct surface print verified; no illegal obscuring sticker detected",
+                            "normalized": None,
+                            "confidence": 0.94,
+                            "source_text": "Surface typography inspection",
+                            "source_bbox": None
+                        }
+                    elif supp_field == "multi_component":
+                        results[supp_field] = {
+                            "value": "Single retail sales unit; mandatory declarations complete on main package",
+                            "normalized": None,
+                            "confidence": 0.95,
+                            "source_text": "Unit package structure",
+                            "source_bbox": None
+                        }
+                else:
+                    results[supp_field] = {
+                        "value": None,
+                        "normalized": None,
+                        "confidence": 0.0,
+                        "source_text": None,
+                        "source_bbox": None
+                    }
 
         return results

@@ -116,7 +116,11 @@ function ViolationDetailsContent() {
 
   const handleCopy = () => {
     if (ocrLines.length > 0) {
-      navigator.clipboard.writeText(ocrLines.join('\n'));
+      const textToCopy = ocrLines
+        .map((l: any) => (typeof l === 'string' ? l : l.text))
+        .filter(Boolean)
+        .join('\n');
+      navigator.clipboard.writeText(textToCopy);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -254,10 +258,12 @@ function ViolationDetailsContent() {
               justifyContent: 'center'
             }}>
               {(() => {
-                const activeSrc =
+                const rawSrc =
                   violationImageTab === 'ocr'
                     ? (inspection?.ocr_image_url || inspection?.image_url)
                     : inspection?.image_url;
+                const imgTimestamp = inspection?.created_at ? new Date(inspection.created_at).getTime() : Date.now();
+                const activeSrc = rawSrc ? `${rawSrc}?t=${imgTimestamp}` : null;
 
                 if (activeSrc) {
                   return (
@@ -357,7 +363,9 @@ function ViolationDetailsContent() {
                 maxHeight: 150,
                 overflowY: 'auto'
               }}>
-                {ocrLines.length > 0 ? ocrLines.join('\n') : 'No OCR text available.'}
+                {ocrLines.length > 0
+                  ? ocrLines.map((l: any) => (typeof l === 'string' ? l : l.text)).filter(Boolean).join('\n')
+                  : 'No OCR text available on this package.'}
               </pre>
 
               <div style={{

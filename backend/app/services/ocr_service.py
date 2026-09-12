@@ -24,9 +24,10 @@ class OCRService:
             image_paths = []
 
         primary_path = image_paths[0] if image_paths else (image_path if isinstance(image_path, str) else "")
+        is_demo_file = bool(primary_path and "scenario_" in os.path.basename(primary_path))
 
-        # 1. If scenario_hint matches preloaded demo scenarios, return calibrated OCR output
-        if scenario_hint and scenario_hint in DEMO_SCENARIOS:
+        # 1. If scenario_hint matches preloaded demo scenarios AND the image is actually a demo file, return calibrated OCR output
+        if scenario_hint and scenario_hint in DEMO_SCENARIOS and is_demo_file:
             scenario = DEMO_SCENARIOS[scenario_hint]
             lines = scenario["mock_ocr"]
             total_conf = sum(l["confidence"] for l in lines) / max(len(lines), 1)
@@ -57,49 +58,55 @@ class OCRService:
                 num_images = len(images_meta)
                 if num_images > 1:
                     prompt = (
-                        f"You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
-                        f"Carefully inspect all {num_images} provided images of this product (Image 1 is Front Panel, Image 2 is Back/Side Declarations Panel).\n"
-                        "1. Detect all visible text declarations (MRP, Net Qty/Wt, Manufacturer, Consumer Care, Dates, Brand, etc.).\n"
-                        "2. For each detected item, output an 'image_index' (0 for Image 1, 1 for Image 2) and 'box_2d': [ymin, xmin, ymax, xmax] normalized to 0-1000 on that image's surface.\n"
-                        "3. Consolidate and extract all mandatory Legal Metrology fields across all provided panels.\n\n"
-                        "Return pure valid JSON matching this structure:\n"
+                        "You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
+                        f"Carefully inspect all {num_images} provided images of this product (Image 1 is Front Panel, Image 2 is Back/Side Declarations Panel).\n\n"
+                        "CRITICAL GROUNDING RULES:\n"
+                        "1. Detect ONLY text declarations that are CLEARLY and PHYSICALLY printed on the images.\n"
+                        "2. If the image has NO text, NO packaging information, or is blank/unrelated, return empty 'lines': [] and null for all fields.\n"
+                        "3. DO NOT guess, assume, or invent any product name, MRP, net quantity, dates, or manufacturer.\n"
+                        "4. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
+                        "5. For each text detected, provide its precise 'image_index' (0 or 1) and 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000).\n\n"
+                        "Return pure valid JSON:\n"
                         "{\n"
-                        '  "product_name": "...",\n'
+                        '  "product_name": null,\n'
                         '  "lines": [\n'
-                        '    {"text": "...", "confidence": 0.95, "image_index": 0, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
+                        '    {"text": "detected text", "confidence": 0.95, "image_index": 0, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
                         '  ],\n'
                         '  "fields": {\n'
-                        '    "product_name": {"value": "...", "confidence": 0.95},\n'
-                        '    "net_quantity": {"value": "70 g", "confidence": 0.95, "unit": "g", "amount": 70},\n'
-                        '    "mrp": {"value": "Rs. 14.00", "confidence": 0.95, "amount": 14.0},\n'
-                        '    "manufacturer": {"value": "...", "confidence": 0.90},\n'
-                        '    "consumer_care": {"value": "...", "confidence": 0.90},\n'
-                        '    "date_mfg_pkd": {"value": "...", "confidence": 0.90},\n'
-                        '    "country_of_origin": {"value": "India", "confidence": 0.95}\n'
+                        '    "product_name": {"value": null, "confidence": 0.0},\n'
+                        '    "net_quantity": {"value": null, "confidence": 0.0},\n'
+                        '    "mrp": {"value": null, "confidence": 0.0},\n'
+                        '    "manufacturer": {"value": null, "confidence": 0.0},\n'
+                        '    "consumer_care": {"value": null, "confidence": 0.0},\n'
+                        '    "date_mfg_pkd": {"value": null, "confidence": 0.0},\n'
+                        '    "country_of_origin": {"value": null, "confidence": 0.0}\n'
                         '  }\n'
                         "}"
                     )
                 else:
                     prompt = (
                         "You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
-                        "Carefully inspect this product package image.\n"
-                        "1. Detect all visible text declarations (MRP, Net Qty/Wt, Manufacturer, Consumer Care, Dates, Brand, etc.).\n"
-                        "2. Provide bounding boxes normalized to [ymin, xmin, ymax, xmax] (0-1000 scale).\n"
-                        "3. Extract mandatory Legal Metrology fields.\n\n"
-                        "Return pure valid JSON with this structure:\n"
+                        "Carefully inspect this product package image.\n\n"
+                        "CRITICAL GROUNDING RULES:\n"
+                        "1. Detect ONLY text declarations that are CLEARLY and PHYSICALLY printed on the image.\n"
+                        "2. If the image has NO text, NO packaging information, or is blank/unrelated, return empty 'lines': [] and null for all fields.\n"
+                        "3. DO NOT guess, assume, or invent any product name, MRP, net quantity, dates, or manufacturer.\n"
+                        "4. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
+                        "5. For each text detected, provide its precise normalized 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000) and 'image_index': 0.\n\n"
+                        "Return pure valid JSON:\n"
                         "{\n"
-                        '  "product_name": "...",\n'
+                        '  "product_name": null,\n'
                         '  "lines": [\n'
-                        '    {"text": "...", "confidence": 0.95, "image_index": 0, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
+                        '    {"text": "detected text", "confidence": 0.95, "image_index": 0, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
                         '  ],\n'
                         '  "fields": {\n'
-                        '    "product_name": {"value": "...", "confidence": 0.95},\n'
-                        '    "net_quantity": {"value": "70 g", "confidence": 0.95, "unit": "g", "amount": 70},\n'
-                        '    "mrp": {"value": "...", "confidence": 0.95, "amount": 14.0},\n'
-                        '    "manufacturer": {"value": "...", "confidence": 0.90},\n'
-                        '    "consumer_care": {"value": "...", "confidence": 0.90},\n'
-                        '    "date_mfg_pkd": {"value": "...", "confidence": 0.90},\n'
-                        '    "country_of_origin": {"value": "India", "confidence": 0.95}\n'
+                        '    "product_name": {"value": null, "confidence": 0.0},\n'
+                        '    "net_quantity": {"value": null, "confidence": 0.0},\n'
+                        '    "mrp": {"value": null, "confidence": 0.0},\n'
+                        '    "manufacturer": {"value": null, "confidence": 0.0},\n'
+                        '    "consumer_care": {"value": null, "confidence": 0.0},\n'
+                        '    "date_mfg_pkd": {"value": null, "confidence": 0.0},\n'
+                        '    "country_of_origin": {"value": null, "confidence": 0.0}\n'
                         '  }\n'
                         "}"
                     )
@@ -155,14 +162,14 @@ class OCRService:
                     })
                     conf_sum += conf
 
-                if formatted_lines:
-                    return {
-                        "lines": formatted_lines,
-                        "overall_confidence": round(conf_sum / len(formatted_lines), 2),
-                        "engine": "qwen3.8-27b-vision",
-                        "fields": parsed.get("fields"),
-                        "product_name": parsed.get("product_name")
-                    }
+                # Return vision result directly (even if 0 lines when image has no text)
+                return {
+                    "lines": formatted_lines,
+                    "overall_confidence": round(conf_sum / max(len(formatted_lines), 1), 2) if formatted_lines else 0.0,
+                    "engine": "qwen3.8-27b-vision",
+                    "fields": parsed.get("fields") or {},
+                    "product_name": parsed.get("product_name")
+                }
             except Exception as e:
                 print(f"Qwen vision inference failed, proceeding to fallback: {e}")
 
@@ -225,14 +232,24 @@ class OCRService:
             except Exception:
                 pass
 
-        # 5. Standard Resilient Fallback: Default demo extraction
-        default_scenario = DEMO_SCENARIOS["scenario_1_compliant"]
-        lines = [{**l, "image_index": 0} for l in default_scenario["mock_ocr"]]
+        # 5. Fallback: Only use demo scenario mock if image is actually a demo scenario file
+        if scenario_hint and scenario_hint in DEMO_SCENARIOS and is_demo_file:
+            scenario = DEMO_SCENARIOS[scenario_hint]
+            lines = [{**l, "image_index": 0} for l in scenario["mock_ocr"]]
+            return {
+                "lines": lines,
+                "overall_confidence": scenario.get("overall_confidence", 0.94),
+                "engine": "calibrated_mock_engine",
+                "fields": scenario.get("fields")
+            }
+
+        # For user uploaded images with no text found, return empty results (NO fake detection)
         return {
-            "lines": lines,
-            "overall_confidence": 0.94,
-            "engine": "calibrated_mock_engine",
-            "fields": default_scenario.get("fields")
+            "lines": [],
+            "overall_confidence": 0.0,
+            "engine": "vision",
+            "fields": {},
+            "product_name": None
         }
 
     @staticmethod
@@ -256,67 +273,105 @@ class OCRService:
             draw = ImageDraw.Draw(overlay)
 
             w_img, h_img = img.size
+            scale_factor = max(1.0, min(w_img, h_img) / 600.0)
+            box_stroke = max(3, int(scale_factor * 2.5))
+            font_size = max(12, int(scale_factor * 11))
+            try:
+                from PIL import ImageFont
+                font = ImageFont.truetype("arial.ttf", font_size)
+            except Exception:
+                try:
+                    from PIL import ImageFont
+                    font = ImageFont.load_default()
+                except Exception:
+                    font = None
 
             matching_lines = [
                 l for l in ocr_lines
                 if isinstance(l, dict) and (target_image_index is None or l.get("image_index", 0) == target_image_index)
             ]
 
-            for idx, item in enumerate(matching_lines):
-                bbox = item.get("bbox")
-                text = item.get("text", "").strip()
-                if not text:
-                    continue
-                conf = float(item.get("confidence", 0.9))
-
-                if bbox and len(bbox) == 4 and isinstance(bbox[0], (list, tuple)):
-                    x_coords = [int(p[0]) for p in bbox]
-                    y_coords = [int(p[1]) for p in bbox]
-                    x1, y1 = min(x_coords), min(y_coords)
-                    x2, y2 = max(x_coords), max(y_coords)
-                elif bbox and len(bbox) == 4:
-                    x1, y1, bw, bh = [int(v) for v in bbox]
-                    x2, y2 = x1 + bw, y1 + bh
+            if not matching_lines:
+                # Clearly indicate on the OCR canvas that 0 declarations were detected
+                banner_text = "No Packaging Text Declarations Detected on Surface"
+                banner_font_size = max(13, int(scale_factor * 13))
+                try:
+                    from PIL import ImageFont
+                    b_font = ImageFont.truetype("arial.ttf", banner_font_size)
+                except Exception:
+                    b_font = font
+                b_pad_x = 16
+                b_pad_y = 9
+                b_w = max(len(banner_text) * int(banner_font_size * 0.62) + b_pad_x * 2, 340)
+                b_h = banner_font_size + b_pad_y * 2
+                draw.rectangle([16, 16, min(w_img - 16, 16 + b_w), 16 + b_h], fill=(15, 23, 42, 230), outline=(239, 68, 68, 255), width=box_stroke)
+                if b_font:
+                    draw.text((16 + b_pad_x, 16 + b_pad_y), banner_text, fill=(248, 250, 252, 255), font=b_font)
                 else:
-                    # Dynamically proportion box to the image canvas
-                    box_h = max(24, int(h_img * 0.07))
-                    y_start = int(h_img * 0.08) + (idx % 10) * (box_h + 10)
-                    x1 = int(w_img * 0.06)
-                    x2 = min(w_img - int(w_img * 0.06), x1 + int(w_img * 0.75))
-                    y1 = y_start
-                    y2 = y1 + box_h
+                    draw.text((16 + b_pad_x, 16 + b_pad_y), banner_text, fill=(248, 250, 252, 255))
+            else:
+                for idx, item in enumerate(matching_lines):
+                    bbox = item.get("bbox")
+                    text = item.get("text", "").strip()
+                    if not text:
+                        continue
+                    conf = float(item.get("confidence", 0.9))
 
-                # Ensure minimum dimensions and clamp to image bounds
-                x1 = max(0, min(x1, w_img - 10))
-                y1 = max(0, min(y1, h_img - 10))
-                x2 = max(x1 + 15, min(x2, w_img))
-                y2 = max(y1 + 15, min(y2, h_img))
+                    if bbox and len(bbox) == 4 and isinstance(bbox[0], (list, tuple)):
+                        x_coords = [int(p[0]) for p in bbox]
+                        y_coords = [int(p[1]) for p in bbox]
+                        x1, y1 = min(x_coords), min(y_coords)
+                        x2, y2 = max(x_coords), max(y_coords)
+                    elif bbox and len(bbox) == 4:
+                        x1, y1, bw, bh = [int(v) for v in bbox]
+                        x2, y2 = x1 + bw, y1 + bh
+                    else:
+                        # Do NOT draw fake synthetic boxes on images without real bounding coordinates
+                        continue
 
-                # Color coding based on Legal Metrology confidence thresholds
-                if conf >= 0.85:
-                    border = (16, 185, 129, 255) # Green
-                    fill = (16, 185, 129, 35)
-                elif conf >= 0.60:
-                    border = (245, 158, 11, 255) # Amber
-                    fill = (245, 158, 11, 35)
-                else:
-                    border = (239, 68, 68, 255) # Red
-                    fill = (239, 68, 68, 40)
+                    # Ensure minimum dimensions and clamp to image bounds
+                    x1 = max(0, min(x1, w_img - 10))
+                    y1 = max(0, min(y1, h_img - 10))
+                    x2 = max(x1 + 15, min(x2, w_img))
+                    y2 = max(y1 + 15, min(y2, h_img))
 
-                draw.rectangle([x1, y1, x2, y2], fill=fill, outline=border, width=2)
+                    # Color coding based on Legal Metrology confidence thresholds
+                    if conf >= 0.85:
+                        border = (16, 185, 129, 255) # Green
+                        fill = (16, 185, 129, 45)
+                    elif conf >= 0.60:
+                        border = (245, 158, 11, 255) # Amber
+                        fill = (245, 158, 11, 45)
+                    else:
+                        border = (239, 68, 68, 255) # Red
+                        fill = (239, 68, 68, 50)
 
-                # Label tag badge with field prefix and confidence percentage
-                field_prefix = item.get("field", "")
-                if field_prefix and field_prefix not in ("general", "other"):
-                    tag_prefix = f"[{field_prefix.replace('_', ' ').title()}] "
-                else:
-                    tag_prefix = ""
+                    draw.rectangle([x1, y1, x2, y2], fill=fill, outline=border, width=box_stroke)
 
-                tag = f"{tag_prefix}{text[:20]} ({int(conf * 100)}%)" if conf <= 1.0 else f"{tag_prefix}{text[:20]}"
-                tag_width = max(len(tag) * 6, 50)
-                tag_y1 = max(0, y1 - 15)
-                draw.rectangle([x1, tag_y1, min(w_img, x1 + tag_width), y1], fill=border)
-                draw.text((x1 + 3, tag_y1 + 2), tag, fill=(255, 255, 255, 255))
+                    # Label tag badge with field prefix and confidence percentage
+                    field_prefix = item.get("field", "")
+                    if field_prefix and field_prefix not in ("general", "other"):
+                        tag_prefix = f"[{field_prefix.replace('_', ' ').title()}] "
+                    else:
+                        tag_prefix = ""
+
+                    tag = f"{tag_prefix}{text[:25]} ({int(conf * 100)}%)" if conf <= 1.0 else f"{tag_prefix}{text[:25]}"
+                    tag_h = max(20, int(font_size * 1.4))
+                    char_w = max(7, int(font_size * 0.62))
+                    tag_w = max(len(tag) * char_w + 10, 70)
+                    
+                    if y1 >= tag_h:
+                        tag_y1 = y1 - tag_h
+                        tag_y2 = y1
+                    else:
+                        tag_y1 = y1
+                        tag_y2 = y1 + tag_h
+
+                    draw.rectangle([x1, tag_y1, min(w_img, x1 + tag_w), tag_y2], fill=border)
+                    if font:
+                        draw.text((x1 + 5, tag_y1 + 2), tag, fill=(255, 255, 255, 255), font=font)
+                    else:
+                        draw.text((x1 + 5, tag_y1 + 2), tag, fill=(255, 255, 255, 255))
 
             composite = PILImage.alpha_composite(img, overlay).convert("RGB")
             composite.save(output_path, "PNG")

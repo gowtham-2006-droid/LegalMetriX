@@ -148,6 +148,15 @@ def upload_inspection_image(
     with open(dest_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Clear any previous scenario notes or mock scenario images
+    if insp.notes and "Scenario: " in insp.notes:
+        insp.notes = "Custom package upload"
+
+    db.query(Image).filter(
+        Image.inspection_id == insp.id,
+        Image.file_path.contains("scenario_")
+    ).delete()
+
     existing_panel_img = db.query(Image).filter_by(inspection_id=insp.id, image_type=panel_type).first()
     if existing_panel_img:
         existing_panel_img.file_path = dest_path
@@ -192,6 +201,11 @@ def analyze_inspection(
     scenario_hint = None
     if insp.notes and "Scenario: " in insp.notes:
         scenario_hint = insp.notes.split("Scenario: ")[1].strip()
+
+    # Never treat an inspection with user-uploaded files as a demo scenario
+    has_user_upload = any("scenario_" not in (img.file_path or "") for img in raw_images)
+    if has_user_upload:
+        scenario_hint = None
 
     insp.status = "processing"
     db.commit()
@@ -475,10 +489,20 @@ def get_inspection_ocr(id: str, db: Session = Depends(get_db)):
     ocr = db.query(OCRResult).filter(OCRResult.inspection_id == id).first()
     if not ocr:
         raise HTTPException(status_code=404, detail="OCR results not found for this inspection")
+    
+    raw_lines = ocr.raw_lines or []
+    text_lines = []
+    for item in raw_lines:
+        if isinstance(item, dict):
+            text_lines.append(item.get("text", ""))
+        elif isinstance(item, str):
+            text_lines.append(item)
+
     return {
         "inspection_id": id,
         "overall_confidence": ocr.overall_confidence,
-        "lines": ocr.raw_lines
+        "lines": raw_lines,
+        "text_lines": text_lines
     }
 
 @router.get("/inspection/{id}/extracted-data")

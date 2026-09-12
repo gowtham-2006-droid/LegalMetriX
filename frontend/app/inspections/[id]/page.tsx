@@ -370,14 +370,15 @@ export default function InspectionResultPage() {
               overflow: 'hidden',
               background: '#0f172a',
               border: '1px solid #e2e8f0',
-              height: 250,
+              height: 360,
+              minHeight: 360,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center'
             }}>
               {(() => {
                 const activePanel = (inspection.panels && inspection.panels[activePanelIndex]) || null;
-                const currentImg = activePanel
+                const rawImg = activePanel
                   ? (imageTab === 'original'
                       ? activePanel.image_url
                       : imageTab === 'processed'
@@ -388,6 +389,9 @@ export default function InspectionResultPage() {
                       : imageTab === 'processed'
                       ? (inspection.processed_image_url || inspection.image_url)
                       : (inspection.ocr_image_url || inspection.image_url));
+
+                const imgTimestamp = inspection?.created_at ? new Date(inspection.created_at).getTime() : Date.now();
+                const currentImg = rawImg ? `${rawImg}?t=${imgTimestamp}` : null;
 
                 if (currentImg) {
                   return (
@@ -401,6 +405,35 @@ export default function InspectionResultPage() {
                           objectFit: 'contain'
                         }}
                       />
+
+                      {/* Overlay if OCR View has 0 detected lines */}
+                      {imageTab === 'ocr' && ocrLines.length === 0 && (
+                        <div style={{
+                          position: 'absolute',
+                          top: '50%',
+                          left: '50%',
+                          transform: 'translate(-50%, -50%)',
+                          background: 'rgba(15, 23, 42, 0.92)',
+                          backdropFilter: 'blur(8px)',
+                          border: '1px solid rgba(245, 158, 11, 0.5)',
+                          padding: '1rem 1.25rem',
+                          borderRadius: 10,
+                          color: '#f8fafc',
+                          textAlign: 'center',
+                          maxWidth: '85%',
+                          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+                          zIndex: 10
+                        }}>
+                          <div style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>🔍</div>
+                          <div style={{ fontSize: '0.88rem', fontWeight: 700, color: '#fef3c7' }}>
+                            No Text Declarations Detected
+                          </div>
+                          <div style={{ fontSize: '0.74rem', color: '#94a3b8', marginTop: '0.25rem', lineHeight: 1.4 }}>
+                            The AI OCR vision engine scanned this package surface and found zero legible printed text or statutory labels.
+                          </div>
+                        </div>
+                      )}
+
                       <div style={{
                         position: 'absolute',
                         bottom: 8,
@@ -416,7 +449,7 @@ export default function InspectionResultPage() {
                         {activePanel ? `${activePanel.label}: ` : ''}
                         {imageTab === 'original' && '📷 Original Upload'}
                         {imageTab === 'processed' && '⚡ CLAHE Normalized'}
-                        {imageTab === 'ocr' && '🔍 AI OCR Bounding Boxes'}
+                        {imageTab === 'ocr' && (ocrLines.length > 0 ? `🔍 AI OCR View (${ocrLines.length} Bounding Boxes)` : '🔍 AI OCR View (0 Detections)')}
                       </div>
                     </div>
                   );
@@ -479,7 +512,7 @@ export default function InspectionResultPage() {
                 fontWeight: 600
               }}
             >
-              OCR View
+              OCR View ({ocrLines.length})
             </button>
             <Link
               href={`/inspections/${inspection.id}/evidence`}
@@ -498,6 +531,85 @@ export default function InspectionResultPage() {
               <ZoomIn size={14} />
             </Link>
           </div>
+
+          {/* Raw OCR Detections drawer when OCR view is active */}
+          {imageTab === 'ocr' && (
+            <div style={{
+              marginTop: '0.75rem',
+              padding: '0.75rem',
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: 8
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#1e293b' }}>
+                  Extracted OCR Lines ({ocrLines.length})
+                </span>
+                <span style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                  {ocrLines.length === 0 ? 'No text detected' : `${ocrLines.length} regions grounded`}
+                </span>
+              </div>
+              {ocrLines.length === 0 ? (
+                <p style={{ fontSize: '0.74rem', color: '#94a3b8', fontStyle: 'italic', margin: 0 }}>
+                  No text declarations detected on package canvas.
+                </p>
+              ) : (
+                <div style={{ maxHeight: 150, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                  {ocrLines.map((line: any, idx: number) => {
+                    const text = typeof line === 'string' ? line : line.text;
+                    const conf = typeof line === 'object' && line.confidence ? `${Math.round(line.confidence * 100)}%` : null;
+                    const fieldTag = typeof line === 'object' && line.field && line.field !== 'general' ? line.field : null;
+                    return (
+                      <div key={idx} style={{
+                        padding: '0.3rem 0.5rem',
+                        background: '#ffffff',
+                        border: '1px solid #e2e8f0',
+                        borderRadius: 4,
+                        fontSize: '0.74rem',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', overflow: 'hidden' }}>
+                          {fieldTag && (
+                            <span style={{
+                              fontSize: '0.64rem',
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              color: '#1a6ef5',
+                              background: '#eff6ff',
+                              padding: '1px 4px',
+                              borderRadius: 3,
+                              flexShrink: 0
+                            }}>
+                              {fieldTag.replace('_', ' ')}
+                            </span>
+                          )}
+                          <span style={{ color: '#334155', fontFamily: 'monospace', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                            {text}
+                          </span>
+                        </div>
+                        {conf && (
+                          <span style={{
+                            fontSize: '0.68rem',
+                            fontWeight: 600,
+                            color: '#10b981',
+                            background: '#ecfdf5',
+                            padding: '1px 5px',
+                            borderRadius: 4,
+                            flexShrink: 0
+                          }}>
+                            {conf}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Col 2: Compliance Score & Extracted Details */}

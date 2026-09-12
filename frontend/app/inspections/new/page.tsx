@@ -25,17 +25,17 @@ export default function NewInspectionPage() {
   const backInputRef = useRef<HTMLInputElement>(null);
 
   const [category, setCategory] = useState('Food & Beverages');
-  const [productName, setProductName] = useState('Parle-G Biscuits');
-  const [brand, setBrand] = useState('Parle');
+  const [productName, setProductName] = useState('');
+  const [brand, setBrand] = useState('');
   const [notes, setNotes] = useState('');
 
   // Multi-surface package states: Front and Back panels
   const [frontFile, setFrontFile] = useState<File | null>(null);
-  const [frontPreview, setFrontPreview] = useState<string | null>('/storage/uploads/scenario_1_compliant.png');
+  const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backFile, setBackFile] = useState<File | null>(null);
   const [backPreview, setBackPreview] = useState<string | null>(null);
 
-  const [scenarioId, setScenarioId] = useState<string | null>('scenario_1_compliant');
+  const [scenarioId, setScenarioId] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -100,7 +100,7 @@ export default function NewInspectionPage() {
         body: JSON.stringify({
           product_name: productName || 'Packaged Commodity',
           product_category: category.toLowerCase().replace(/ & /g, '_').replace(/ /g, '_'),
-          scenario_hint: scenarioId || undefined,
+          scenario_hint: (!frontFile && !backFile && scenarioId) ? scenarioId : undefined,
           notes: notes || `Inspected by Officer`
         })
       });
