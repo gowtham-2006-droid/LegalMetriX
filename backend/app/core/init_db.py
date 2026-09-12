@@ -55,7 +55,13 @@ def init_database():
             db.add(admin2)
 
 
-        # 2. Seed default compliance rules if not present
+        # 2. Seed and sync the 14 official Rule 6 compliance rules
+        active_ids = {r["rule_id"] for r in DEFAULT_COMPLIANCE_RULES}
+        # Deactivate obsolete legacy rules
+        for old_rule in db.query(ComplianceRule).all():
+            if old_rule.rule_id not in active_ids:
+                old_rule.is_active = False
+
         for rule_dict in DEFAULT_COMPLIANCE_RULES:
             existing = db.query(ComplianceRule).filter_by(rule_id=rule_dict["rule_id"]).first()
             if not existing:
@@ -75,7 +81,6 @@ def init_database():
                     is_active=True
                 )
                 db.add(rule)
-                # Seed rule version
                 ver = RuleVersion(
                     rule_id=rule_dict["rule_id"],
                     version=rule_dict["version"],
@@ -83,6 +88,19 @@ def init_database():
                     created_by="system_init"
                 )
                 db.add(ver)
+            else:
+                existing.rule_name = rule_dict["rule_name"]
+                existing.applicable_category = rule_dict["applicable_category"]
+                existing.requirement = rule_dict["requirement"]
+                existing.input_field = rule_dict["input_field"]
+                existing.validation_logic = rule_dict["validation_logic"]
+                existing.severity = rule_dict["severity"]
+                existing.result_if_absent = rule_dict["result_if_absent"]
+                existing.result_if_low_confidence = rule_dict["result_if_low_confidence"]
+                existing.explanation_template = rule_dict["explanation_template"]
+                existing.source_reference = rule_dict["source_reference"]
+                existing.version = rule_dict["version"]
+                existing.is_active = True
 
         db.commit()
 

@@ -357,47 +357,104 @@ export default function AnalyzingProductPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
           {/* Card 1: Product Image */}
           <div className="card">
-            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem' }}>
-              Product Image
-            </h3>
-
-            {/* Parle-G Biscuit Graphic Mock */}
-            <div style={{
-              height: 140,
-              borderRadius: 8,
-              background: 'linear-gradient(135deg, #fef08a 0%, #fde047 100%)',
-              border: '1px solid #facc15',
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              position: 'relative',
-              overflow: 'hidden',
-              boxShadow: '0 4px 10px rgba(0,0,0,0.06)'
-            }}>
-              <div style={{
-                background: '#b91c1c',
-                color: 'white',
-                padding: '0.35rem 1.2rem',
-                borderRadius: 6,
-                fontWeight: 900,
-                fontSize: '1.1rem',
-                letterSpacing: '0.5px'
-              }}>
-                Parle-G
-              </div>
-              <p style={{ fontSize: '0.75rem', fontWeight: 600, color: '#713f12', marginTop: 4 }}>
-                Original Gluco Biscuits
-              </p>
-              <div style={{ position: 'absolute', bottom: 8, left: 10, fontSize: '0.7rem', color: '#854d0e' }}>
-                Net Wt. 800 g
-              </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
+                Product Image
+              </h3>
+              {productData?.panels && productData.panels.length > 1 && (
+                <span style={{ fontSize: '0.7rem', color: '#16a34a', fontWeight: 700, background: '#dcfce7', padding: '2px 6px', borderRadius: 8 }}>
+                  Dual Surfaces
+                </span>
+              )}
             </div>
+
+            {/* Real Uploaded Package Display */}
+            {productData?.image_url ? (
+              <div style={{
+                height: 160,
+                borderRadius: 8,
+                background: '#0f172a',
+                border: '1px solid #e2e8f0',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                position: 'relative',
+                overflow: 'hidden'
+              }}>
+                <img
+                  src={productData.image_url}
+                  alt={productData.product_name || 'Uploaded package'}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '100%',
+                    objectFit: 'contain'
+                  }}
+                />
+                <div style={{
+                  position: 'absolute',
+                  bottom: 6,
+                  left: 8,
+                  background: 'rgba(15, 23, 42, 0.8)',
+                  backdropFilter: 'blur(4px)',
+                  color: '#f8fafc',
+                  fontSize: '0.66rem',
+                  fontWeight: 600,
+                  padding: '0.15rem 0.5rem',
+                  borderRadius: 4
+                }}>
+                  📷 Original Upload
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                height: 140,
+                borderRadius: 8,
+                background: '#f8fafc',
+                border: '1px dashed #cbd5e1',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '0.5rem',
+                color: '#64748b'
+              }}>
+                <Loader2 size={24} className="animate-spin" color="#1a6ef5" />
+                <span style={{ fontSize: '0.78rem', fontWeight: 500 }}>Loading uploaded package...</span>
+              </div>
+            )}
+
+            {/* Multi-Panel Thumbnails if Front and Back were uploaded */}
+            {productData?.panels && productData.panels.length > 1 && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', marginTop: '0.6rem' }}>
+                {productData.panels.map((panel: any) => (
+                  <div key={panel.id || panel.panel} style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 6,
+                    padding: '4px',
+                    background: '#ffffff',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem'
+                  }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 4, background: '#0f172a', overflow: 'hidden', flexShrink: 0 }}>
+                      <img src={panel.image_url} alt={panel.label} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    </div>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 600, color: '#334155', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {panel.label}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.65rem' }}>
               <FileImage size={15} color="#64748b" />
-              <span style={{ fontSize: '0.78rem', color: '#475569', fontWeight: 600 }}>parle-g-biscuit.jpg</span>
-              <span style={{ fontSize: '0.72rem', color: '#94a3b8' }}>(1.8 MB)</span>
+              <span style={{ fontSize: '0.78rem', color: '#475569', fontWeight: 600 }}>
+                {productData?.product_name || 'Uploaded Package Image'}
+              </span>
+              <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 600 }}>
+                (Live Capture)
+              </span>
             </div>
           </div>
 
