@@ -1,20 +1,30 @@
 import os
 import json
 import base64
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 from app.data.sample_scenarios import DEMO_SCENARIOS
 from app.core.config import settings
 
 class OCRService:
     """
     OCR & Vision Grounding Service:
-    - Primary: Qwen 3.8-27B Vision Model via Groq (visual grounding with normalized bounding boxes)
+    - Primary: Qwen 3.8-27B Vision Model via Groq (multi-image visual grounding with normalized bounding boxes)
     - Hybrid fallback: EasyOCR / PyTesseract
     - Offline fallback: Calibrated demo scenario definitions
     """
 
     @staticmethod
-    def extract_text(image_path: str, scenario_hint: str = None) -> dict:
+    def extract_text(image_path: Union[str, List[str]], scenario_hint: str = None) -> dict:
+        # Normalize input to list of existing image paths
+        if isinstance(image_path, (list, tuple)):
+            image_paths = [p for p in image_path if p and os.path.exists(p)]
+        elif isinstance(image_path, str) and os.path.exists(image_path):
+            image_paths = [image_path]
+        else:
+            image_paths = []
+
+        primary_path = image_paths[0] if image_paths else (image_path if isinstance(image_path, str) else "")
+
         # 1. If scenario_hint matches preloaded demo scenarios, return calibrated OCR output
         if scenario_hint and scenario_hint in DEMO_SCENARIOS:
             scenario = DEMO_SCENARIOS[scenario_hint]
@@ -27,63 +37,88 @@ class OCRService:
                 "fields": scenario.get("fields")
             }
 
-        # 2. State-of-the-art Qwen Vision Model on Groq (with Visual Grounding)
-        if settings.GROQ_API_KEY and os.path.exists(image_path):
+        # 2. State-of-the-art Qwen Vision Model on Groq (with Multi-Surface Grounding)
+        if settings.GROQ_API_KEY and image_paths:
             try:
                 from PIL import Image as PILImage
                 from groq import Groq
 
-                pil_img = PILImage.open(image_path)
-                w_img, h_img = pil_img.size
-
-                with open(image_path, "rb") as f:
-                    b64_data = base64.b64encode(f.read()).decode("utf-8")
-
                 client = Groq(api_key=settings.GROQ_API_KEY)
-                prompt = (
-                    "You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
-                    "Carefully inspect this product package image.\n"
-                    "1. Detect all visible text declarations (MRP, Net Qty/Wt, Manufacturer, Consumer Care, Dates, Brand, etc.).\n"
-                    "2. Provide bounding boxes normalized to [ymin, xmin, ymax, xmax] (0-1000 scale).\n"
-                    "3. Extract mandatory Legal Metrology fields.\n\n"
-                    "Return pure valid JSON with this structure:\n"
-                    "{\n"
-                    '  "product_name": "...",\n'
-                    '  "lines": [\n'
-                    '    {"text": "...", "confidence": 0.95, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
-                    '  ],\n'
-                    '  "fields": {\n'
-                    '    "product_name": {"value": "...", "confidence": 0.95},\n'
-                    '    "net_quantity": {"value": "70 g", "confidence": 0.95, "unit": "g", "amount": 70},\n'
-                    '    "mrp": {"value": "...", "confidence": 0.95, "amount": 14.0},\n'
-                    '    "manufacturer": {"value": "...", "confidence": 0.90},\n'
-                    '    "consumer_care": {"value": "...", "confidence": 0.90},\n'
-                    '    "date_mfg_pkd": {"value": "...", "confidence": 0.90},\n'
-                    '    "country_of_origin": {"value": "India", "confidence": 0.95}\n'
-                    '  }\n'
-                    "}"
-                )
-
                 model_name = getattr(settings, "GROQ_VISION_MODEL", "qwen/qwen3.8-27b")
+
+                images_meta = []
+                for p in image_paths:
+                    p_img = PILImage.open(p)
+                    w, h = p_img.size
+                    with open(p, "rb") as f:
+                        b64_d = base64.b64encode(f.read()).decode("utf-8")
+                    images_meta.append({"width": w, "height": h, "b64": b64_d})
+
+                num_images = len(images_meta)
+                if num_images > 1:
+                    prompt = (
+                        f"You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
+                        f"Carefully inspect all {num_images} provided images of this product (Image 1 is Front Panel, Image 2 is Back/Side Declarations Panel).\n"
+                        "1. Detect all visible text declarations (MRP, Net Qty/Wt, Manufacturer, Consumer Care, Dates, Brand, etc.).\n"
+                        "2. For each detected item, output an 'image_index' (0 for Image 1, 1 for Image 2) and 'box_2d': [ymin, xmin, ymax, xmax] normalized to 0-1000 on that image's surface.\n"
+                        "3. Consolidate and extract all mandatory Legal Metrology fields across all provided panels.\n\n"
+                        "Return pure valid JSON matching this structure:\n"
+                        "{\n"
+                        '  "product_name": "...",\n'
+                        '  "lines": [\n'
+                        '    {"text": "...", "confidence": 0.95, "image_index": 0, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
+                        '  ],\n'
+                        '  "fields": {\n'
+                        '    "product_name": {"value": "...", "confidence": 0.95},\n'
+                        '    "net_quantity": {"value": "70 g", "confidence": 0.95, "unit": "g", "amount": 70},\n'
+                        '    "mrp": {"value": "Rs. 14.00", "confidence": 0.95, "amount": 14.0},\n'
+                        '    "manufacturer": {"value": "...", "confidence": 0.90},\n'
+                        '    "consumer_care": {"value": "...", "confidence": 0.90},\n'
+                        '    "date_mfg_pkd": {"value": "...", "confidence": 0.90},\n'
+                        '    "country_of_origin": {"value": "India", "confidence": 0.95}\n'
+                        '  }\n'
+                        "}"
+                    )
+                else:
+                    prompt = (
+                        "You are an expert Legal Metrology AI vision inspector for packaged goods.\n"
+                        "Carefully inspect this product package image.\n"
+                        "1. Detect all visible text declarations (MRP, Net Qty/Wt, Manufacturer, Consumer Care, Dates, Brand, etc.).\n"
+                        "2. Provide bounding boxes normalized to [ymin, xmin, ymax, xmax] (0-1000 scale).\n"
+                        "3. Extract mandatory Legal Metrology fields.\n\n"
+                        "Return pure valid JSON with this structure:\n"
+                        "{\n"
+                        '  "product_name": "...",\n'
+                        '  "lines": [\n'
+                        '    {"text": "...", "confidence": 0.95, "image_index": 0, "box_2d": [ymin, xmin, ymax, xmax], "field": "net_quantity"}\n'
+                        '  ],\n'
+                        '  "fields": {\n'
+                        '    "product_name": {"value": "...", "confidence": 0.95},\n'
+                        '    "net_quantity": {"value": "70 g", "confidence": 0.95, "unit": "g", "amount": 70},\n'
+                        '    "mrp": {"value": "...", "confidence": 0.95, "amount": 14.0},\n'
+                        '    "manufacturer": {"value": "...", "confidence": 0.90},\n'
+                        '    "consumer_care": {"value": "...", "confidence": 0.90},\n'
+                        '    "date_mfg_pkd": {"value": "...", "confidence": 0.90},\n'
+                        '    "country_of_origin": {"value": "India", "confidence": 0.95}\n'
+                        '  }\n'
+                        "}"
+                    )
+
+                content_payload = [{"type": "text", "text": prompt}]
+                for meta in images_meta:
+                    content_payload.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{meta['b64']}"}
+                    })
+
                 resp = client.chat.completions.create(
                     model=model_name,
                     max_tokens=850,
-                    messages=[{
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64_data}"}}
-                        ]
-                    }]
+                    messages=[{"role": "user", "content": content_payload}]
                 )
 
                 content = resp.choices[0].message.content.strip()
-                if "```json" in content:
-                    content = content.split("```json")[1].split("```")[0].strip()
-                elif "```" in content:
-                    content = content.split("```")[1].split("```")[0].strip()
-
-                parsed = json.loads(content)
+                parsed = OCRService._parse_resilient_json(content)
                 raw_lines = parsed.get("lines", [])
                 formatted_lines = []
                 conf_sum = 0.0
@@ -93,8 +128,12 @@ class OCRService:
                     if not text:
                         continue
                     conf = float(item.get("confidence", 0.9))
-                    box_2d = item.get("box_2d")
+                    img_idx = int(item.get("image_index", 0))
+                    img_idx = max(0, min(img_idx, len(images_meta) - 1))
+                    w_img = images_meta[img_idx]["width"]
+                    h_img = images_meta[img_idx]["height"]
 
+                    box_2d = item.get("box_2d")
                     if box_2d and len(box_2d) == 4:
                         ymin, xmin, ymax, xmax = [float(v) for v in box_2d]
                         x1 = int(xmin * w_img / 1000)
@@ -111,6 +150,7 @@ class OCRService:
                         "text": text,
                         "confidence": round(conf, 3),
                         "bbox": bbox,
+                        "image_index": img_idx,
                         "field": item.get("field", "general")
                     })
                     conf_sum += conf
@@ -126,65 +166,68 @@ class OCRService:
             except Exception as e:
                 print(f"Qwen vision inference failed, proceeding to fallback: {e}")
 
-        # 3. Try EasyOCR if available
-        try:
-            import easyocr
-            reader = easyocr.Reader(['en'], gpu=False)
-            results = reader.readtext(image_path)
-            lines = []
-            conf_sum = 0.0
-            for bbox, text, conf in results:
-                box = [[int(pt[0]), int(pt[1])] for pt in bbox]
-                lines.append({
-                    "text": text.strip(),
-                    "confidence": round(float(conf), 3),
-                    "bbox": box
-                })
-                conf_sum += float(conf)
-
-            if lines:
-                return {
-                    "lines": lines,
-                    "overall_confidence": round(conf_sum / len(lines), 2),
-                    "engine": "easyocr"
-                }
-        except Exception:
-            pass
-
-        # 4. Try PyTesseract if available
-        try:
-            import pytesseract
-            from PIL import Image as PILImage
-            img = PILImage.open(image_path)
-            data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
-            lines = []
-            n_boxes = len(data['text'])
-            conf_sum = 0.0
-            valid_count = 0
-            for i in range(n_boxes):
-                text = data['text'][i].strip()
-                conf = float(data['conf'][i])
-                if text and conf > 0:
-                    x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+        # 3. Fallback: Try EasyOCR on primary image
+        if primary_path and os.path.exists(primary_path):
+            try:
+                import easyocr
+                reader = easyocr.Reader(['en'], gpu=False)
+                results = reader.readtext(primary_path)
+                lines = []
+                conf_sum = 0.0
+                for bbox, text, conf in results:
+                    box = [[int(pt[0]), int(pt[1])] for pt in bbox]
                     lines.append({
-                        "text": text,
-                        "confidence": round(conf / 100.0, 3),
-                        "bbox": [[x, y], [x + w, y], [x + w, y + h], [x, y + h]]
+                        "text": text.strip(),
+                        "confidence": round(float(conf), 3),
+                        "bbox": box,
+                        "image_index": 0
                     })
-                    conf_sum += (conf / 100.0)
-                    valid_count += 1
-            if lines:
-                return {
-                    "lines": lines,
-                    "overall_confidence": round(conf_sum / max(valid_count, 1), 2),
-                    "engine": "pytesseract"
-                }
-        except Exception:
-            pass
+                    conf_sum += float(conf)
+
+                if lines:
+                    return {
+                        "lines": lines,
+                        "overall_confidence": round(conf_sum / len(lines), 2),
+                        "engine": "easyocr"
+                    }
+            except Exception:
+                pass
+
+            # 4. Fallback: Try PyTesseract on primary image
+            try:
+                import pytesseract
+                from PIL import Image as PILImage
+                img = PILImage.open(primary_path)
+                data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)
+                lines = []
+                n_boxes = len(data['text'])
+                conf_sum = 0.0
+                valid_count = 0
+                for i in range(n_boxes):
+                    text = data['text'][i].strip()
+                    conf = float(data['conf'][i])
+                    if text and conf > 0:
+                        x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                        lines.append({
+                            "text": text,
+                            "confidence": round(conf / 100.0, 3),
+                            "bbox": [[x, y], [x + w, y], [x + w, y + h], [x, y + h]],
+                            "image_index": 0
+                        })
+                        conf_sum += (conf / 100.0)
+                        valid_count += 1
+                if lines:
+                    return {
+                        "lines": lines,
+                        "overall_confidence": round(conf_sum / max(valid_count, 1), 2),
+                        "engine": "pytesseract"
+                    }
+            except Exception:
+                pass
 
         # 5. Standard Resilient Fallback: Default demo extraction
         default_scenario = DEMO_SCENARIOS["scenario_1_compliant"]
-        lines = default_scenario["mock_ocr"]
+        lines = [{**l, "image_index": 0} for l in default_scenario["mock_ocr"]]
         return {
             "lines": lines,
             "overall_confidence": 0.94,
@@ -193,9 +236,15 @@ class OCRService:
         }
 
     @staticmethod
-    def generate_annotated_image(image_path: str, ocr_lines: list, output_path: str) -> str:
+    def generate_annotated_image(
+        image_path: str,
+        ocr_lines: list,
+        output_path: str,
+        target_image_index: Optional[int] = None
+    ) -> str:
         """
         Draws color-coded bounding boxes and detected text labels onto the image.
+        If target_image_index is provided, only boxes for that image index are drawn.
         """
         try:
             from PIL import Image as PILImage, ImageDraw
@@ -208,9 +257,12 @@ class OCRService:
 
             w_img, h_img = img.size
 
-            for idx, item in enumerate(ocr_lines):
-                if not isinstance(item, dict):
-                    continue
+            matching_lines = [
+                l for l in ocr_lines
+                if isinstance(l, dict) and (target_image_index is None or l.get("image_index", 0) == target_image_index)
+            ]
+
+            for idx, item in enumerate(matching_lines):
                 bbox = item.get("bbox")
                 text = item.get("text", "").strip()
                 if not text:
@@ -253,7 +305,7 @@ class OCRService:
 
                 draw.rectangle([x1, y1, x2, y2], fill=fill, outline=border, width=2)
 
-                # Label tag badge with text preview and confidence percentage
+                # Label tag badge with field prefix and confidence percentage
                 field_prefix = item.get("field", "")
                 if field_prefix and field_prefix not in ("general", "other"):
                     tag_prefix = f"[{field_prefix.replace('_', ' ').title()}] "
@@ -275,3 +327,28 @@ class OCRService:
             if os.path.exists(image_path) and image_path != output_path:
                 shutil.copy(image_path, output_path)
             return output_path
+
+    @staticmethod
+    def _parse_resilient_json(s: str) -> dict:
+        s = s.strip()
+        if "```json" in s:
+            s = s.split("```json")[1].split("```")[0].strip()
+        elif "```" in s:
+            s = s.split("```")[1].split("```")[0].strip()
+
+        try:
+            return json.loads(s)
+        except Exception:
+            pass
+
+        # Try repairing truncated JSON by trimming and closing braces
+        for i in range(len(s), 10, -1):
+            sub = s[:i].rstrip().rstrip(",")
+            for closing in ["}]}", "]}", "}", "]"]:
+                try:
+                    res = json.loads(sub + closing)
+                    if isinstance(res, dict):
+                        return res
+                except Exception:
+                    continue
+        return {}

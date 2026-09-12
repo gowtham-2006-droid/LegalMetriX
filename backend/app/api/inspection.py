@@ -100,10 +100,11 @@ def create_inspection(
     }
 
 @router.post("/inspection/{id}/image")
-async def upload_inspection_image(
+def upload_inspection_image(
     id: str,
     file: Optional[UploadFile] = File(None),
     scenario_id: Optional[str] = Form(None),
+    panel_type: str = Form("front"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -127,11 +128,11 @@ async def upload_inspection_image(
             inspection_id=insp.id,
             file_path=dest_path,
             storage_url=f"/storage/uploads/{filename}",
-            image_type="front"
+            image_type=panel_type
         )
         db.add(img_record)
         db.commit()
-        return {"status": "success", "image_id": img_record.id, "url": img_record.storage_url}
+        return {"status": "success", "image_id": img_record.id, "url": img_record.storage_url, "panel": panel_type}
 
     if not file:
         raise HTTPException(status_code=400, detail="No file or scenario provided")
@@ -141,23 +142,30 @@ async def upload_inspection_image(
     if ext not in [".jpg", ".jpeg", ".png", ".webp"]:
         raise HTTPException(status_code=400, detail="Unsupported file format. Please upload JPG or PNG.")
 
-    unique_filename = f"{id}_{uuid.uuid4().hex[:8]}{ext}"
+    unique_filename = f"{id}_{panel_type}_{uuid.uuid4().hex[:6]}{ext}"
     dest_path = os.path.join(settings.UPLOAD_DIR, unique_filename)
 
     with open(dest_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    img_record = Image(
-        inspection_id=insp.id,
-        file_path=dest_path,
-        storage_url=f"/storage/uploads/{unique_filename}",
-        image_type="front"
-    )
-    db.add(img_record)
+    existing_panel_img = db.query(Image).filter_by(inspection_id=insp.id, image_type=panel_type).first()
+    if existing_panel_img:
+        existing_panel_img.file_path = dest_path
+        existing_panel_img.storage_url = f"/storage/uploads/{unique_filename}"
+        img_record = existing_panel_img
+    else:
+        img_record = Image(
+            inspection_id=insp.id,
+            file_path=dest_path,
+            storage_url=f"/storage/uploads/{unique_filename}",
+            image_type=panel_type
+        )
+        db.add(img_record)
+
     db.commit()
     db.refresh(img_record)
 
-    return {"status": "success", "image_id": img_record.id, "url": img_record.storage_url}
+    return {"status": "success", "image_id": img_record.id, "url": img_record.storage_url, "panel": panel_type}
 
 @router.post("/inspection/{id}/analyze")
 def analyze_inspection(
@@ -169,8 +177,16 @@ def analyze_inspection(
     if not insp:
         raise HTTPException(status_code=404, detail="Inspection not found")
 
-    image = db.query(Image).filter(Image.inspection_id == id).order_by(Image.uploaded_at.desc()).first()
-    if not image:
+    raw_images = db.query(Image).filter(
+        Image.inspection_id == id,
+        ~Image.image_type.contains("ocr"),
+        ~Image.image_type.contains("processed")
+    ).order_by(Image.uploaded_at.asc()).all()
+
+    if not raw_images:
+        raw_images = db.query(Image).filter(Image.inspection_id == id).all()
+
+    if not raw_images:
         raise HTTPException(status_code=400, detail="No package image uploaded for this inspection")
 
     scenario_hint = None
@@ -180,32 +196,41 @@ def analyze_inspection(
     insp.status = "processing"
     db.commit()
 
-    # Step 1: CV Preprocessing
-    cv_info = ComputerVisionService.preprocess_image(image.file_path, settings.UPLOAD_DIR)
-    processed_url = f"/storage/uploads/{os.path.basename(cv_info['processed_path'])}"
-    proc_img = db.query(Image).filter_by(inspection_id=id, image_type="processed").first()
-    if not proc_img:
-        proc_img = Image(inspection_id=id, file_path=cv_info["processed_path"], storage_url=processed_url, image_type="processed")
-        db.add(proc_img)
-    else:
-        proc_img.file_path = cv_info["processed_path"]
-        proc_img.storage_url = processed_url
+    # Step 1: Preprocess images
+    processed_paths = []
+    for img_rec in raw_images:
+        cv_info = ComputerVisionService.preprocess_image(img_rec.file_path, settings.UPLOAD_DIR)
+        processed_paths.append(cv_info["processed_path"])
 
-    # Step 2: OCR Extraction
-    ocr_data = OCRService.extract_text(cv_info["processed_path"], scenario_hint=scenario_hint)
-    
-    # Generate and save OCR Annotated Image with Bounding Boxes
-    base_name = os.path.splitext(os.path.basename(image.file_path))[0]
-    ocr_annotated_path = os.path.join(settings.UPLOAD_DIR, f"{base_name}_ocr.png")
-    OCRService.generate_annotated_image(image.file_path, ocr_data["lines"], ocr_annotated_path)
-    ocr_url = f"/storage/uploads/{base_name}_ocr.png"
-    ocr_img = db.query(Image).filter_by(inspection_id=id, image_type="ocr").first()
-    if not ocr_img:
-        ocr_img = Image(inspection_id=id, file_path=ocr_annotated_path, storage_url=ocr_url, image_type="ocr")
-        db.add(ocr_img)
+    # Step 2: Multi-Surface OCR & Vision Grounding Extraction
+    if len(processed_paths) > 1:
+        ocr_data = OCRService.extract_text(processed_paths, scenario_hint=scenario_hint)
     else:
-        ocr_img.file_path = ocr_annotated_path
-        ocr_img.storage_url = ocr_url
+        ocr_data = OCRService.extract_text(processed_paths[0], scenario_hint=scenario_hint)
+    
+    # Generate and save OCR Annotated Image with Bounding Boxes for each panel
+    primary_ocr_url = None
+    for idx, img_rec in enumerate(raw_images):
+        base_name = os.path.splitext(os.path.basename(img_rec.file_path))[0]
+        ocr_annotated_path = os.path.join(settings.UPLOAD_DIR, f"{base_name}_ocr.png")
+        OCRService.generate_annotated_image(
+            img_rec.file_path,
+            ocr_data["lines"],
+            ocr_annotated_path,
+            target_image_index=idx
+        )
+        panel_ocr_url = f"/storage/uploads/{base_name}_ocr.png"
+        if idx == 0:
+            primary_ocr_url = panel_ocr_url
+
+        panel_ocr_type = f"{img_rec.image_type}_ocr" if img_rec.image_type != "front" else "ocr"
+        ocr_img = db.query(Image).filter_by(inspection_id=id, image_type=panel_ocr_type).first()
+        if not ocr_img:
+            ocr_img = Image(inspection_id=id, file_path=ocr_annotated_path, storage_url=panel_ocr_url, image_type=panel_ocr_type)
+            db.add(ocr_img)
+        else:
+            ocr_img.file_path = ocr_annotated_path
+            ocr_img.storage_url = panel_ocr_url
     
     # Save OCR Results
     existing_ocr = db.query(OCRResult).filter_by(inspection_id=id).first()
@@ -373,6 +398,30 @@ def get_inspection(id: str, db: Session = Depends(get_db)):
     score = db.query(ComplianceScore).filter(ComplianceScore.inspection_id == id).first()
     report = db.query(Report).filter(Report.inspection_id == id).first()
 
+    raw_images = db.query(Image).filter(
+        Image.inspection_id == id,
+        ~Image.image_type.contains("ocr"),
+        ~Image.image_type.contains("processed")
+    ).order_by(Image.uploaded_at.asc()).all()
+
+    panels_data = []
+    for r_img in raw_images:
+        b_name = os.path.splitext(os.path.basename(r_img.file_path))[0]
+        panel_ocr_type = f"{r_img.image_type}_ocr" if r_img.image_type != "front" else "ocr"
+        panel_ocr_record = db.query(Image).filter_by(inspection_id=id, image_type=panel_ocr_type).first()
+        p_ocr_url = panel_ocr_record.storage_url if panel_ocr_record else f"/storage/uploads/{b_name}_ocr.png"
+        if not os.path.exists(os.path.join(settings.UPLOAD_DIR, f"{b_name}_ocr.png")):
+            p_ocr_url = r_img.storage_url
+
+        panels_data.append({
+            "id": r_img.id,
+            "panel": r_img.image_type,
+            "label": "Front Face" if r_img.image_type == "front" else ("Back Panel / Declarations" if r_img.image_type == "back" else r_img.image_type.title()),
+            "image_url": r_img.storage_url,
+            "processed_image_url": f"/storage/uploads/{b_name}_preprocessed.png" if os.path.exists(os.path.join(settings.UPLOAD_DIR, f"{b_name}_preprocessed.png")) else r_img.storage_url,
+            "ocr_image_url": p_ocr_url
+        })
+
     return {
         "id": insp.id,
         "product_name": insp.product_name,
@@ -383,6 +432,7 @@ def get_inspection(id: str, db: Session = Depends(get_db)):
         "image_url": original_img.storage_url if original_img else None,
         "processed_image_url": processed_url,
         "ocr_image_url": ocr_url,
+        "panels": panels_data,
         "pdf_url": report.pdf_url if report else None,
         "compliance_score": {
             "weighted_score": score.weighted_score,

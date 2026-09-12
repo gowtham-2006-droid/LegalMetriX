@@ -21,17 +21,20 @@ import {
 
 export default function NewInspectionPage() {
   const router = useRouter();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const frontInputRef = useRef<HTMLInputElement>(null);
+  const backInputRef = useRef<HTMLInputElement>(null);
 
   const [category, setCategory] = useState('Food & Beverages');
   const [productName, setProductName] = useState('Parle-G Biscuits');
   const [brand, setBrand] = useState('Parle');
   const [notes, setNotes] = useState('');
 
-  const [selectedImages, setSelectedImages] = useState([
-    { id: 1, label: 'Britannia Glucose D (Sample)', src: '/storage/uploads/scenario_1_compliant.png' }
-  ]);
-  const [fileToUpload, setFileToUpload] = useState<File | null>(null);
+  // Multi-surface package states: Front and Back panels
+  const [frontFile, setFrontFile] = useState<File | null>(null);
+  const [frontPreview, setFrontPreview] = useState<string | null>('/storage/uploads/scenario_1_compliant.png');
+  const [backFile, setBackFile] = useState<File | null>(null);
+  const [backPreview, setBackPreview] = useState<string | null>(null);
+
   const [scenarioId, setScenarioId] = useState<string | null>('scenario_1_compliant');
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -46,32 +49,44 @@ export default function NewInspectionPage() {
     { id: 'Others', label: 'Others', icon: MoreHorizontal }
   ];
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFrontChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setFileToUpload(file);
+      setFrontFile(file);
+      setFrontPreview(URL.createObjectURL(file));
       setScenarioId(null);
-      const url = URL.createObjectURL(file);
-      setSelectedImages([
-        { id: Date.now(), label: file.name, src: url }
-      ]);
+    }
+  };
+
+  const handleBackChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      setBackFile(file);
+      setBackPreview(URL.createObjectURL(file));
+      setScenarioId(null);
     }
   };
 
   const handleSelectScenario = (scId: string, name: string, cat: string) => {
     setScenarioId(scId);
-    setFileToUpload(null);
+    setFrontFile(null);
+    setBackFile(null);
+    setFrontPreview(`/storage/uploads/${scId}.png`);
+    setBackPreview(null);
     setProductName(name);
     setCategory(cat);
-    setSelectedImages([
-      { id: Date.now(), label: `${name} (Demo)`, src: `/storage/uploads/${scId}.png` }
-    ]);
   };
 
   const handleStartAnalysis = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitting(true);
     setErrorMessage('');
+
+    if (!frontFile && !backFile && !scenarioId) {
+      setErrorMessage('Please upload at least one package panel (Front Face or Back Panel).');
+      setSubmitting(false);
+      return;
+    }
 
     try {
       const token = localStorage.getItem('metrology_token');
@@ -98,34 +113,49 @@ export default function NewInspectionPage() {
       const createData = await createRes.json();
       const inspectionId = createData.inspection_id;
 
-      // 2. Upload image or attach scenario
-      const formData = new FormData();
-      if (fileToUpload) {
-        formData.append('file', fileToUpload);
-      } else if (scenarioId) {
-        formData.append('scenario_id', scenarioId);
+      // 2. Upload Front Panel if provided
+      if (frontFile) {
+        const fdFront = new FormData();
+        fdFront.append('file', frontFile);
+        fdFront.append('panel_type', 'front');
+        await fetch(`/api/inspection/${inspectionId}/image`, {
+          method: 'POST',
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          body: fdFront
+        });
       }
 
-      await fetch(`/api/inspection/${inspectionId}/image`, {
-        method: 'POST',
-        headers: {
-          'Authorization': token ? `Bearer ${token}` : ''
-        },
-        body: formData
-      });
+      // 3. Upload Back Panel if provided
+      if (backFile) {
+        const fdBack = new FormData();
+        fdBack.append('file', backFile);
+        fdBack.append('panel_type', 'back');
+        await fetch(`/api/inspection/${inspectionId}/image`, {
+          method: 'POST',
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          body: fdBack
+        });
+      }
 
-      // 3. Navigate to live analyzing pipeline
+      // 4. Scenario fallback if no custom files uploaded
+      if (!frontFile && !backFile && scenarioId) {
+        const fdScenario = new FormData();
+        fdScenario.append('scenario_id', scenarioId);
+        fdScenario.append('panel_type', 'front');
+        await fetch(`/api/inspection/${inspectionId}/image`, {
+          method: 'POST',
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+          body: fdScenario
+        });
+      }
+
+      // 5. Navigate to live analyzing pipeline
       router.push(`/inspections/${inspectionId}/analyzing`);
     } catch (err: any) {
       console.error('Inspection start error:', err);
       setErrorMessage(err.message || 'Could not start inspection');
       setSubmitting(false);
     }
-  };
-
-  const removeImage = (id: number) => {
-    setSelectedImages(selectedImages.filter(img => img.id !== id));
-    setFileToUpload(null);
   };
 
 
@@ -182,216 +212,340 @@ export default function NewInspectionPage() {
       }}>
         {/* Left Column: Form Steps */}
         <form onSubmit={handleStartAnalysis} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          {/* Step 1: Upload Product Image(s) */}
+          {/* Step 1: Upload Product Package Surfaces */}
           <div className="card">
-            <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>
-              1. Upload Product Image(s)
-            </h2>
-
-            {/* Drag & Drop Area */}
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                border: '2px dashed #cbd5e1',
-                borderRadius: 12,
-                padding: '2.5rem 1.5rem',
-                textAlign: 'center',
-                backgroundColor: '#f8fafc',
-                cursor: 'pointer',
-                marginBottom: '1.25rem',
-                transition: 'all 0.15s ease'
-              }}
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                style={{ display: 'none' }}
-                accept="image/*"
-              />
-              <div style={{
-                width: 48,
-                height: 48,
-                borderRadius: '50%',
-                background: '#eff6ff',
-                color: '#1a6ef5',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginBottom: '0.75rem'
-              }}>
-                <UploadCloud size={26} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
+              <div>
+                <h2 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '0.2rem' }}>
+                  1. Upload Package Surfaces
+                </h2>
+                <p style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                  Upload Front Face and Back Panel for multi-surface Legal Metrology verification.
+                </p>
               </div>
-              <p style={{ fontSize: '0.92rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.25rem' }}>
-                Drag & drop package images here
-              </p>
-              <p style={{ fontSize: '0.78rem', color: '#64748b', marginBottom: '1.25rem' }}>or choose a file / live demo</p>
-
-              <div style={{ display: 'flex', justifyContent: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              {(frontPreview || backPreview) && (
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
-                  className="btn btn-primary"
-                  style={{ fontSize: '0.82rem', padding: '0.5rem 1rem' }}
+                  onClick={() => {
+                    setFrontFile(null);
+                    setFrontPreview(null);
+                    setBackFile(null);
+                    setBackPreview(null);
+                    setScenarioId(null);
+                  }}
+                  style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
                 >
-                  <UploadCloud size={16} />
-                  Choose Files
+                  Clear All Panels
                 </button>
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); setIsCameraActive(true); }}
-                  className="btn btn-secondary"
-                  style={{ fontSize: '0.82rem', padding: '0.5rem 1rem' }}
-                >
-                  <Camera size={16} />
-                  Open Camera
-                </button>
-              </div>
-
-              {/* Demo Preloaders */}
-              <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0' }}>
-                <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                  Or Select Pre-Calibrated SIH Demo Scenario:
-                </span>
-                <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleSelectScenario('scenario_1_compliant', 'Britannia Glucose D Biscuits', 'Food & Beverages'); }}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      backgroundColor: scenarioId === 'scenario_1_compliant' ? '#16a34a' : '#ecfdf5',
-                      color: scenarioId === 'scenario_1_compliant' ? '#ffffff' : '#15803d',
-                      border: '1px solid #bbf7d0',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Scenario 1: Compliant Biscuit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleSelectScenario('scenario_2_missing_care', 'Parle-G Glucose Biscuits', 'Food & Beverages'); }}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      backgroundColor: scenarioId === 'scenario_2_missing_care' ? '#dc2626' : '#fef2f2',
-                      color: scenarioId === 'scenario_2_missing_care' ? '#ffffff' : '#b91c1c',
-                      border: '1px solid #fecaca',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Scenario 2: Missing Care Helpline
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => { e.stopPropagation(); handleSelectScenario('scenario_3_low_confidence', 'Fortune Sunlite Sunflower Oil', 'Food & Beverages'); }}
-                    style={{
-                      padding: '4px 10px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      fontWeight: 600,
-                      backgroundColor: scenarioId === 'scenario_3_low_confidence' ? '#d97706' : '#fffbeb',
-                      color: scenarioId === 'scenario_3_low_confidence' ? '#ffffff' : '#b45309',
-                      border: '1px solid #fde68a',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Scenario 3: Low OCR Confidence
-                  </button>
-                </div>
-              </div>
-
-              <p style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '1rem' }}>
-                Supports JPG, PNG, WEBP (Max 10MB each)
-              </p>
+              )}
             </div>
 
+            {/* Hidden Inputs */}
+            <input
+              type="file"
+              ref={frontInputRef}
+              onChange={handleFrontChange}
+              style={{ display: 'none' }}
+              accept="image/*"
+            />
+            <input
+              type="file"
+              ref={backInputRef}
+              onChange={handleBackChange}
+              style={{ display: 'none' }}
+              accept="image/*"
+            />
 
-            {/* Selected Images Tray (3 Images matching Image 3) */}
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
-                  Selected Images ({selectedImages.length})
-                </span>
-                {selectedImages.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedImages([])}
-                    style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: '0.78rem', fontWeight: 600, cursor: 'pointer' }}
-                  >
-                    Clear All
-                  </button>
-                )}
-              </div>
+            {/* Dual Dropzone Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
+              {/* Panel 1: Front Face (PDP) */}
+              <div
+                style={{
+                  border: frontPreview ? '1px solid #93c5fd' : '2px dashed #cbd5e1',
+                  borderRadius: 12,
+                  padding: '1.25rem',
+                  backgroundColor: frontPreview ? '#f8fafc' : '#fafafa',
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 220,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <div style={{
+                  position: 'absolute',
+                  top: 10,
+                  left: 10,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  backgroundColor: '#eff6ff',
+                  color: '#1a6ef5',
+                  border: '1px solid #bfdbfe'
+                }}>
+                  📷 Front Face (PDP)
+                </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem' }}>
-                {selectedImages.map((img) => (
-                  <div key={img.id} style={{
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 10,
-                    padding: '0.75rem',
-                    backgroundColor: '#ffffff',
-                    position: 'relative'
-                  }}>
-                    {/* Delete X */}
-                    <button
-                      type="button"
-                      onClick={() => removeImage(img.id)}
-                      style={{
-                        position: 'absolute',
-                        top: 6,
-                        right: 6,
-                        width: 22,
-                        height: 22,
-                        borderRadius: '50%',
-                        backgroundColor: 'rgba(15, 23, 42, 0.7)',
-                        color: '#ffffff',
-                        border: 'none',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 10
-                      }}
-                    >
-                      <X size={12} />
-                    </button>
-
-                    {/* Thumbnail Package */}
+                {frontPreview ? (
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '1.5rem' }}>
                     <div style={{
-                      height: 100,
-                      borderRadius: 6,
+                      width: '100%',
+                      height: 120,
+                      borderRadius: 8,
                       overflow: 'hidden',
-                      background: '#fef08a',
+                      background: '#0f172a',
                       display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: '0.65rem'
+                    }}>
+                      <img
+                        src={frontPreview}
+                        alt="Front panel preview"
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.74rem', color: '#16a34a', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      <CheckCircle2 size={14} color="#16a34a" />
+                      <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {frontFile ? frontFile.name : (scenarioId ? `${scenarioId} (Front)` : 'Front Surface Attached')}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => frontInputRef.current?.click()}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFrontFile(null);
+                          setFrontPreview(null);
+                          setScenarioId(null);
+                        }}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => frontInputRef.current?.click()}
+                    style={{ textAlign: 'center', cursor: 'pointer', width: '100%', padding: '1rem 0' }}
+                  >
+                    <div style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      background: '#eff6ff',
+                      color: '#1a6ef5',
+                      display: 'inline-flex',
                       alignItems: 'center',
                       justifyContent: 'center',
                       marginBottom: '0.5rem'
                     }}>
-                      <div style={{
-                        background: 'linear-gradient(135deg, #f59e0b, #d97706)',
-                        color: 'white',
-                        padding: '0.4rem 0.8rem',
-                        borderRadius: 4,
-                        fontWeight: 800,
-                        fontSize: '0.75rem'
-                      }}>
-                        Parle-G
-                      </div>
+                      <UploadCloud size={20} />
                     </div>
+                    <p style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.2rem' }}>
+                      Upload Front Panel
+                    </p>
+                    <p style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: '0.75rem' }}>
+                      Brand name, Product name, Net Qty
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); frontInputRef.current?.click(); }}
+                      className="btn btn-primary"
+                      style={{ fontSize: '0.75rem', padding: '0.4rem 0.8rem' }}
+                    >
+                      <UploadCloud size={14} />
+                      Choose Front File
+                    </button>
+                  </div>
+                )}
+              </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.75rem', color: '#059669', fontWeight: 600 }}>
-                      <CheckCircle2 size={14} color="#10b981" />
-                      <span>{img.label}</span>
+              {/* Panel 2: Back / Information Panel */}
+              <div
+                style={{
+                  border: backPreview ? '1px solid #93c5fd' : '2px dashed #cbd5e1',
+                  borderRadius: 12,
+                  padding: '1.25rem',
+                  backgroundColor: backPreview ? '#f8fafc' : '#fafafa',
+                  position: 'relative',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  minHeight: 220,
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <div style={{
+                  position: 'absolute',
+                  top: 10,
+                  left: 10,
+                  padding: '3px 8px',
+                  borderRadius: 6,
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  backgroundColor: '#f5f3ff',
+                  color: '#7c3aed',
+                  border: '1px solid #ddd6fe'
+                }}>
+                  📦 Back / Declarations Panel
+                </div>
+
+                {backPreview ? (
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', marginTop: '1.5rem' }}>
+                    <div style={{
+                      width: '100%',
+                      height: 120,
+                      borderRadius: 8,
+                      overflow: 'hidden',
+                      background: '#0f172a',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: '0.65rem'
+                    }}>
+                      <img
+                        src={backPreview}
+                        alt="Back panel preview"
+                        style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.74rem', color: '#16a34a', fontWeight: 600, marginBottom: '0.5rem' }}>
+                      <CheckCircle2 size={14} color="#16a34a" />
+                      <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {backFile ? backFile.name : 'Back Surface Attached'}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => backInputRef.current?.click()}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #cbd5e1', background: '#ffffff', color: '#475569', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Change
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBackFile(null);
+                          setBackPreview(null);
+                        }}
+                        style={{ padding: '3px 8px', fontSize: '0.72rem', borderRadius: 4, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
-                ))}
+                ) : (
+                  <div
+                    onClick={() => backInputRef.current?.click()}
+                    style={{ textAlign: 'center', cursor: 'pointer', width: '100%', padding: '1rem 0' }}
+                  >
+                    <div style={{
+                      width: 40,
+                      height: 40,
+                      borderRadius: '50%',
+                      background: '#f5f3ff',
+                      color: '#7c3aed',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      marginBottom: '0.5rem'
+                    }}>
+                      <UploadCloud size={20} />
+                    </div>
+                    <p style={{ fontSize: '0.84rem', fontWeight: 600, color: '#1e293b', marginBottom: '0.2rem' }}>
+                      Upload Back Panel
+                    </p>
+                    <p style={{ fontSize: '0.72rem', color: '#64748b', marginBottom: '0.75rem' }}>
+                      MRP, Dates, Mfr Address, Helpline
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); backInputRef.current?.click(); }}
+                      className="btn btn-secondary"
+                      style={{ fontSize: '0.75rem', padding: '0.4rem 0.8rem' }}
+                    >
+                      <UploadCloud size={14} />
+                      Choose Back File
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Demo Preloaders */}
+            <div style={{ paddingTop: '0.75rem', borderTop: '1px solid #e2e8f0' }}>
+              <span style={{ fontSize: '0.73rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                Or Select Pre-Calibrated SIH Demo Scenario:
+              </span>
+              <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-start', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => handleSelectScenario('scenario_1_compliant', 'Britannia Glucose D Biscuits', 'Food & Beverages')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    backgroundColor: scenarioId === 'scenario_1_compliant' ? '#16a34a' : '#ecfdf5',
+                    color: scenarioId === 'scenario_1_compliant' ? '#ffffff' : '#15803d',
+                    border: '1px solid #bbf7d0',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Scenario 1: Compliant Biscuit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectScenario('scenario_2_missing_care', 'Parle-G Glucose Biscuits', 'Food & Beverages')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    backgroundColor: scenarioId === 'scenario_2_missing_care' ? '#dc2626' : '#fef2f2',
+                    color: scenarioId === 'scenario_2_missing_care' ? '#ffffff' : '#b91c1c',
+                    border: '1px solid #fecaca',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Scenario 2: Missing Care Helpline
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectScenario('scenario_3_low_confidence', 'Fortune Sunlite Sunflower Oil', 'Food & Beverages')}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 600,
+                    backgroundColor: scenarioId === 'scenario_3_low_confidence' ? '#d97706' : '#fffbeb',
+                    color: scenarioId === 'scenario_3_low_confidence' ? '#ffffff' : '#b45309',
+                    border: '1px solid #fde68a',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Scenario 3: Low OCR Confidence
+                </button>
+              </div>
+            </div>
+
+            <p style={{ fontSize: '0.72rem', color: '#94a3b8', marginTop: '0.75rem' }}>
+              💡 Both panels are analyzed simultaneously by the Qwen 3.8-27B Vision LLM in a single high-speed pass.
+            </p>
           </div>
 
           {/* Step 2: Product Details (Optional) */}

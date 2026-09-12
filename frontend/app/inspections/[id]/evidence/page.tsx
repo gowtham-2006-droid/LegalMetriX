@@ -50,6 +50,7 @@ function VisualEvidenceContent() {
   const [inspection, setInspection] = useState<any>(null);
   const [detectedElements, setDetectedElements] = useState<DetectedElement[]>([]);
   const [evidenceTab, setEvidenceTab] = useState<'ocr' | 'original'>('ocr');
+  const [activePanelIndex, setActivePanelIndex] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(1);
   const [selectedElement, setSelectedElement] = useState<string | null>(initialSelectedField);
   const [selectedView, setSelectedView] = useState('Front View');
@@ -230,6 +231,45 @@ function VisualEvidenceContent() {
             </div>
           </div>
 
+          {/* Panel Selector Pill if multiple surfaces */}
+          {inspection?.panels && inspection.panels.length > 1 && (
+            <div style={{
+              display: 'flex',
+              gap: '0.35rem',
+              marginBottom: '0.75rem',
+              background: '#f1f5f9',
+              padding: '3px',
+              borderRadius: 8
+            }}>
+              {inspection.panels.map((p: any, idx: number) => (
+                <button
+                  key={p.id || idx}
+                  type="button"
+                  onClick={() => setActivePanelIndex(idx)}
+                  style={{
+                    flex: 1,
+                    padding: '0.4rem 0.6rem',
+                    fontSize: '0.76rem',
+                    fontWeight: 700,
+                    borderRadius: 6,
+                    border: 'none',
+                    background: activePanelIndex === idx ? '#1a6ef5' : 'transparent',
+                    color: activePanelIndex === idx ? '#ffffff' : '#64748b',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '0.35rem',
+                    transition: 'all 0.15s ease'
+                  }}
+                >
+                  <span>{p.panel === 'front' ? '📷' : '📦'}</span>
+                  <span>{p.label || (p.panel === 'front' ? 'Front Face' : 'Back Panel')}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Interactive Image Surface */}
           <div style={{
             position: 'relative',
@@ -243,10 +283,14 @@ function VisualEvidenceContent() {
             justifyContent: 'center'
           }}>
             {(() => {
-              const activeSrc =
-                evidenceTab === 'ocr'
-                  ? (inspection?.ocr_image_url || inspection?.image_url)
-                  : inspection?.image_url;
+              const activePanel = (inspection?.panels && inspection.panels[activePanelIndex]) || null;
+              const activeSrc = activePanel
+                ? (evidenceTab === 'ocr'
+                    ? (activePanel.ocr_image_url || activePanel.image_url)
+                    : activePanel.image_url)
+                : (evidenceTab === 'ocr'
+                    ? (inspection?.ocr_image_url || inspection?.image_url)
+                    : inspection?.image_url);
 
               if (activeSrc) {
                 return (
@@ -275,7 +319,8 @@ function VisualEvidenceContent() {
                       padding: '0.25rem 0.65rem',
                       borderRadius: 4
                     }}>
-                      {evidenceTab === 'ocr' ? '🔍 AI OCR Bounding Boxes with Detection Tags' : '📷 Original Package Image'}
+                      {activePanel ? `${activePanel.label}: ` : ''}
+                      {evidenceTab === 'ocr' ? '🔍 OCR Annotated Surface' : '📷 Original Surface'}
                     </div>
                   </div>
                 );

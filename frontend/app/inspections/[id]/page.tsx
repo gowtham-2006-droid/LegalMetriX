@@ -22,6 +22,15 @@ import {
   Loader2
 } from 'lucide-react';
 
+interface InspectionPanel {
+  id: number;
+  panel: string;
+  label: string;
+  image_url: string;
+  processed_image_url?: string;
+  ocr_image_url?: string;
+}
+
 interface InspectionDetail {
   id: string;
   product_name: string;
@@ -32,6 +41,7 @@ interface InspectionDetail {
   image_url?: string;
   processed_image_url?: string;
   ocr_image_url?: string;
+  panels?: InspectionPanel[];
   pdf_url?: string;
   compliance_score?: {
     weighted_score: number;
@@ -80,6 +90,7 @@ export default function InspectionResultPage() {
 
   const [showOnlyIssues, setShowOnlyIssues] = useState(false);
   const [imageTab, setImageTab] = useState<'original' | 'processed' | 'ocr'>('processed');
+  const [activePanelIndex, setActivePanelIndex] = useState(0);
   const [verified, setVerified] = useState(false);
 
   useEffect(() => {
@@ -302,9 +313,55 @@ export default function InspectionResultPage() {
         {/* Col 1: Product Image (Analyzed) with Interactive Views */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div>
-            <h3 style={{ fontSize: '0.95rem', fontWeight: 700, marginBottom: '0.75rem' }}>
-              Product Image (Analyzed)
-            </h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.6rem' }}>
+              <h3 style={{ fontSize: '0.95rem', fontWeight: 700, margin: 0 }}>
+                Product Image (Analyzed)
+              </h3>
+              {inspection.panels && inspection.panels.length > 1 && (
+                <span style={{ fontSize: '0.72rem', color: '#16a34a', fontWeight: 600, background: '#dcfce7', padding: '2px 7px', borderRadius: 10 }}>
+                  2 Surfaces Analyzed
+                </span>
+              )}
+            </div>
+
+            {/* Multi-Panel Switcher Pill */}
+            {inspection.panels && inspection.panels.length > 1 && (
+              <div style={{
+                display: 'flex',
+                gap: '0.35rem',
+                marginBottom: '0.65rem',
+                background: '#f1f5f9',
+                padding: '3px',
+                borderRadius: 8
+              }}>
+                {inspection.panels.map((p, idx) => (
+                  <button
+                    key={p.id || idx}
+                    type="button"
+                    onClick={() => setActivePanelIndex(idx)}
+                    style={{
+                      flex: 1,
+                      padding: '0.35rem 0.5rem',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      borderRadius: 6,
+                      border: 'none',
+                      background: activePanelIndex === idx ? '#1a6ef5' : 'transparent',
+                      color: activePanelIndex === idx ? '#ffffff' : '#64748b',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '0.35rem',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    <span>{p.panel === 'front' ? '📷' : '📦'}</span>
+                    <span>{p.label || (p.panel === 'front' ? 'Front Face' : 'Back Panel')}</span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* Interactive Package Container */}
             <div style={{
@@ -319,12 +376,18 @@ export default function InspectionResultPage() {
               justifyContent: 'center'
             }}>
               {(() => {
-                const currentImg =
-                  imageTab === 'original'
-                    ? inspection.image_url
-                    : imageTab === 'processed'
-                    ? (inspection.processed_image_url || inspection.image_url)
-                    : (inspection.ocr_image_url || inspection.image_url);
+                const activePanel = (inspection.panels && inspection.panels[activePanelIndex]) || null;
+                const currentImg = activePanel
+                  ? (imageTab === 'original'
+                      ? activePanel.image_url
+                      : imageTab === 'processed'
+                      ? (activePanel.processed_image_url || activePanel.image_url)
+                      : (activePanel.ocr_image_url || activePanel.image_url))
+                  : (imageTab === 'original'
+                      ? inspection.image_url
+                      : imageTab === 'processed'
+                      ? (inspection.processed_image_url || inspection.image_url)
+                      : (inspection.ocr_image_url || inspection.image_url));
 
                 if (currentImg) {
                   return (
@@ -350,8 +413,9 @@ export default function InspectionResultPage() {
                         padding: '0.2rem 0.55rem',
                         borderRadius: 4
                       }}>
-                        {imageTab === 'original' && '📷 Original Uploaded Image'}
-                        {imageTab === 'processed' && '⚡ CLAHE Contrast Normalized'}
+                        {activePanel ? `${activePanel.label}: ` : ''}
+                        {imageTab === 'original' && '📷 Original Upload'}
+                        {imageTab === 'processed' && '⚡ CLAHE Normalized'}
                         {imageTab === 'ocr' && '🔍 AI OCR Bounding Boxes'}
                       </div>
                     </div>
