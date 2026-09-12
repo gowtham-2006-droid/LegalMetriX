@@ -126,27 +126,73 @@ class NLPService:
             "source_bbox": ocr_lines[0].get("bbox")
         }
 
-        # 2. Net Quantity
-        qty_pattern = re.compile(r'(?:NET\s*(?:WT|WEIGHT|QTY|QUANTITY|VOL|VOLUME)?[:.\s-]*)?(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units)\b', re.IGNORECASE)
+        # 2. Net Quantity (Prioritize explicit statutory declarations)
+        statutory_qty_pattern = re.compile(r'(?:NET\s*(?:WT|WEIGHT|QTY|QUANTITY|VOL|VOLUME|CONTENTS)?[:.\s-]*)(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units|tabs|tablets|capsules)\b', re.IGNORECASE)
+        fallback_qty_pattern = re.compile(r'\b(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units|tabs|tablets|capsules)\b', re.IGNORECASE)
         qty_match = None
+
+        # Pass 1: Explicit statutory NET WT / NET WEIGHT label prefix
         for line in ocr_lines:
-            match = qty_pattern.search(line["text"])
+            match = statutory_qty_pattern.search(line["text"])
             if match:
                 amount = float(match.group(1))
                 unit = match.group(2).lower()
-                # Standardize units
                 if unit in ["gm", "gms"]:
                     unit = "g"
                 elif unit in ["ltr", "litre"]:
                     unit = "l"
                 qty_match = {
-                    "value": f"{match.group(1)} {unit}",
+                    "value": f"{int(amount) if amount.is_integer() else amount} {unit}",
                     "normalized": {"amount": amount, "unit": unit},
-                    "confidence": round(line["confidence"], 2),
+                    "confidence": round(float(line.get("confidence", 0.95)), 2),
                     "source_text": line["text"],
-                    "source_bbox": line["bbox"]
+                    "source_bbox": line.get("bbox")
                 }
                 break
+
+        # Pass 2: Lines tagged with field == 'net_quantity' by vision model
+        if not qty_match:
+            for line in ocr_lines:
+                if line.get("field") == "net_quantity" and line.get("text"):
+                    match = fallback_qty_pattern.search(line["text"])
+                    if match:
+                        amount = float(match.group(1))
+                        unit = match.group(2).lower()
+                        if unit in ["gm", "gms"]:
+                            unit = "g"
+                        elif unit in ["ltr", "litre"]:
+                            unit = "l"
+                        qty_match = {
+                            "value": f"{int(amount) if amount.is_integer() else amount} {unit}",
+                            "normalized": {"amount": amount, "unit": unit},
+                            "confidence": round(float(line.get("confidence", 0.90)), 2),
+                            "source_text": line["text"],
+                            "source_bbox": line.get("bbox")
+                        }
+                        break
+
+        # Pass 3: General quantity match excluding nutrition and serving lines
+        if not qty_match:
+            for line in ocr_lines:
+                text_u = line["text"].upper()
+                if any(k in text_u for k in ["PER 100", "SERVING", "FAT", "PROTEIN", "CARBOHYDRATE", "ENERGY", "SUGAR", "SODIUM"]):
+                    continue
+                match = fallback_qty_pattern.search(line["text"])
+                if match:
+                    amount = float(match.group(1))
+                    unit = match.group(2).lower()
+                    if unit in ["gm", "gms"]:
+                        unit = "g"
+                    elif unit in ["ltr", "litre"]:
+                        unit = "l"
+                    qty_match = {
+                        "value": f"{int(amount) if amount.is_integer() else amount} {unit}",
+                        "normalized": {"amount": amount, "unit": unit},
+                        "confidence": round(float(line.get("confidence", 0.85)), 2),
+                        "source_text": line["text"],
+                        "source_bbox": line.get("bbox")
+                    }
+                    break
 
         results["net_quantity"] = qty_match or {
             "value": None,
@@ -581,29 +627,52 @@ class NLPService:
                             }
                             break
 
-        # 3. Backfill Net Quantity if missing or null
-        if not results.get("net_quantity", {}).get("value") and ocr_lines:
-            qty_pattern = re.compile(r'(?:NET\s*(?:WT|WEIGHT|QTY|QUANTITY|VOL|VOLUME)?[:.\s-]*)?(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units|tabs|tablets|capsules)\b', re.IGNORECASE)
+        # 3. Backfill / Correct Net Quantity from grounded OCR lines
+        statutory_qty_pattern = re.compile(r'(?:NET\s*(?:WT|WEIGHT|QTY|QUANTITY|VOL|VOLUME|CONTENTS)?[:.\s-]*)(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units|tabs|tablets|capsules)\b', re.IGNORECASE)
+        fallback_qty_pattern = re.compile(r'\b(\d+(?:\.\d+)?)\s*(kg|g|gm|gms|ml|l|ltr|litre|pieces|units|tabs|tablets|capsules)\b', re.IGNORECASE)
+        
+        # Check if an explicit statutory declaration like 'Net Wt.: 50 g' is grounded on package
+        statutory_found = None
+        for line in ocr_lines:
+            m = statutory_qty_pattern.search(line.get("text", ""))
+            if m:
+                amount = float(m.group(1))
+                unit = m.group(2).lower()
+                if unit in ["gm", "gms"]:
+                    unit = "g"
+                elif unit in ["ltr", "litre"]:
+                    unit = "l"
+                statutory_found = {
+                    "value": f"{int(amount) if amount.is_integer() else amount} {unit}",
+                    "normalized": {"amount": amount, "unit": unit},
+                    "confidence": round(float(line.get("confidence", 0.95)), 2),
+                    "source_text": line["text"],
+                    "source_bbox": line.get("bbox")
+                }
+                break
+
+        if statutory_found:
+            # Explicit statutory declaration always supersedes any hallucinated or nutrition-table value
+            results["net_quantity"] = statutory_found
+        elif not results.get("net_quantity", {}).get("value") and ocr_lines:
             for line in ocr_lines:
                 if line.get("field") == "net_quantity" and line.get("text"):
-                    results["net_quantity"] = {
-                        "value": line["text"].strip(),
-                        "normalized": None,
-                        "confidence": round(float(line.get("confidence", 0.90)), 2),
-                        "source_text": line["text"],
-                        "source_bbox": line.get("bbox")
-                    }
-                    break
-                m = qty_pattern.search(line.get("text", ""))
-                if m:
-                    results["net_quantity"] = {
-                        "value": line["text"].strip(),
-                        "normalized": None,
-                        "confidence": round(float(line.get("confidence", 0.85)), 2),
-                        "source_text": line["text"],
-                        "source_bbox": line.get("bbox")
-                    }
-                    break
+                    m = fallback_qty_pattern.search(line["text"])
+                    if m:
+                        amount = float(m.group(1))
+                        unit = m.group(2).lower()
+                        if unit in ["gm", "gms"]:
+                            unit = "g"
+                        elif unit in ["ltr", "litre"]:
+                            unit = "l"
+                        results["net_quantity"] = {
+                            "value": f"{int(amount) if amount.is_integer() else amount} {unit}",
+                            "normalized": {"amount": amount, "unit": unit},
+                            "confidence": round(float(line.get("confidence", 0.90)), 2),
+                            "source_text": line["text"],
+                            "source_bbox": line.get("bbox")
+                        }
+                        break
 
         # 4. Backfill Manufacturer if missing or null
         if not results.get("manufacturer", {}).get("value") and ocr_lines:

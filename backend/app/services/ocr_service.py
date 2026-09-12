@@ -61,12 +61,12 @@ class OCRService:
                     p_img = PILImage.open(p).convert("RGB")
                     orig_w, orig_h = p_img.size
 
-                    # Downsample & compress to max 1024px and JPEG quality 82
-                    # This reduces base64 payload from 15MB to ~80KB and token usage by ~80%
+                    # Downsample & compress to max 1280px and JPEG quality 85
+                    # Preserves legibility of fine 10-14px statutory fonts (e.g. 50g vs 90g)
                     comp_img = p_img.copy()
-                    comp_img.thumbnail((1024, 1024), PILImage.Resampling.LANCZOS)
+                    comp_img.thumbnail((1280, 1280), PILImage.Resampling.LANCZOS)
                     buf = io.BytesIO()
-                    comp_img.save(buf, format="JPEG", quality=82, optimize=True)
+                    comp_img.save(buf, format="JPEG", quality=85, optimize=True)
                     b64_d = base64.b64encode(buf.getvalue()).decode("utf-8")
 
                     images_meta.append({"width": orig_w, "height": orig_h, "b64": b64_d})
@@ -83,10 +83,11 @@ class OCRService:
                         "4. DYNAMIC BATCH & PERIMETER CODING (BLISTER PACKS, CRIMP SEALS, POUCHES, CARTONS):\n"
                         "   - On blister packs, medicine strips, foil wraps, and pouches, dynamic batch details (B.No, MFG.DATE, EXPIRY DATE, M.R.P.) are frequently stamped in purple, black, or embossed inkjet/laser dot-matrix lettering along the bottom foil, crimped heat-seals, or margins.\n"
                         "   - You MUST extract these stamped lines! Always ground them with bounding box coordinates.\n"
-                        "   - For the date of manufacture or packaging (e.g. 'MFG.DATE 11/2025' or '11/2025'), assign 'field': 'date_mfg_pkd' and map the date to 'fields.date_mfg_pkd' with high confidence.\n"
+                        "   - For the date of manufacture or packaging (e.g. 'MFG.DATE 11/2025' or '11/2025' or 'BEST BEFORE 9 MONTHS'), assign 'field': 'date_mfg_pkd' and map the date to 'fields.date_mfg_pkd'.\n"
                         "   - For the retail price (e.g. 'M.R.P. Rs 103.13' or '103.13'), assign 'field': 'mrp' and map it to 'fields.mrp'.\n"
-                        "5. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
-                        "6. For each text detected, provide its precise 'image_index' (0 or 1) and 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000).\n\n"
+                        "5. STATUTORY NET QUANTITY ACCURACY: Accurately read the exact digits of the statutory Net Weight / Net Quantity (e.g. 'Net Wt.: 50 g'). Distinguish digits clearly (do NOT confuse '50 g' with '90 g', nor with nutritional serving sizes).\n"
+                        "6. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
+                        "7. For each text detected, provide its precise 'image_index' (0 or 1) and 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000).\n\n"
                         "Return pure valid JSON:\n"
                         "{\n"
                         '  "product_name": null,\n'
@@ -115,10 +116,11 @@ class OCRService:
                         "4. DYNAMIC BATCH & PERIMETER CODING (BLISTER PACKS, CRIMP SEALS, POUCHES, CARTONS):\n"
                         "   - On blister packs, medicine strips, foil wraps, and pouches, dynamic batch details (B.No, MFG.DATE, EXPIRY DATE, M.R.P.) are frequently stamped in purple, black, or embossed inkjet/laser dot-matrix lettering along the bottom foil, crimped heat-seals, or margins.\n"
                         "   - You MUST extract these stamped lines! Always ground them with bounding box coordinates.\n"
-                        "   - For the date of manufacture or packaging (e.g. 'MFG.DATE 11/2025' or '11/2025'), assign 'field': 'date_mfg_pkd' and map the date to 'fields.date_mfg_pkd' with high confidence.\n"
+                        "   - For the date of manufacture or packaging (e.g. 'MFG.DATE 11/2025' or '11/2025' or 'BEST BEFORE 9 MONTHS'), assign 'field': 'date_mfg_pkd' and map the date to 'fields.date_mfg_pkd'.\n"
                         "   - For the retail price (e.g. 'M.R.P. Rs 103.13' or '103.13'), assign 'field': 'mrp' and map it to 'fields.mrp'.\n"
-                        "5. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
-                        "6. For each text detected, provide its precise normalized 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000) and 'image_index': 0.\n\n"
+                        "5. STATUTORY NET QUANTITY ACCURACY: Accurately read the exact digits of the statutory Net Weight / Net Quantity (e.g. 'Net Wt.: 50 g'). Distinguish digits clearly (do NOT confuse '50 g' with '90 g', nor with nutritional serving sizes).\n"
+                        "6. If a field is NOT explicitly visible on the packaging, set its value to null and confidence to 0.0.\n"
+                        "7. For each text detected, provide its precise normalized 'box_2d': [ymin, xmin, ymax, xmax] (coordinates normalized between 0 and 1000) and 'image_index': 0.\n\n"
                         "Return pure valid JSON:\n"
                         "{\n"
                         '  "product_name": null,\n'
@@ -150,7 +152,7 @@ class OCRService:
                     try:
                         create_kwargs = {
                             "model": model_candidate,
-                            "max_tokens": 550,
+                            "max_tokens": 750,
                             "messages": [{"role": "user", "content": content_payload}]
                         }
                         # Disable thinking overhead on Qwen so 100% of token budget goes directly to JSON text detections
